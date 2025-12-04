@@ -1,0 +1,18 @@
+company_id,event,event_date,severity
+C001,Cheque Return,2024-11-01,Low
+C001,High Overdraft,2025-09-03,Low
+C002,Cheque Return,2025-05-19,High
+C002,Payment Delay,2025-10-09,Low
+C003,Cheque Return,2025-02-26,Medium
+C003,Limit Breach,2025-03-27,Low
+C004,Negative News,2025-06-06,Medium
+C004,Payment Delay,2025-05-07,Medium
+C005,High Overdraft,2025-04-08,Medium
+C006,Negative News,2025-10-24,Medium
+C006,High Overdraft,2025-08-26,Medium
+C006,Limit Breach,2024-11-21,Medium
+C007,Negative News,2025-06-18,Medium
+C008,High Overdraft,2025-02-19,Low
+C009,Cheque Return,2025-03-17,Low
+C009,Cheque Return,2025-05-04,Medium
+C010,Payment Delay,2025-01-19,High

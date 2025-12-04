@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+gunicorn
+pandas
+python-dotenv
+python-docx
+requests
+docx2pdf

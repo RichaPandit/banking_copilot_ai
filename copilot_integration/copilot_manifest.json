@@ -1,0 +1,117 @@
+{
+    "version": "1.0",
+    "name": "CreditRiskCopilotAgent",
+    "displayName": "Credit Risk Copilot (Work IQ + MCP)",
+    "description": "Enterprise Copilot agent for automated credit risk reviews. Uses Work IQ for context & MCP for secure data/tool access.",
+    "mcp": {
+        "baseUrl": "https://banking-ai-mcp-hpg8e8d7dxe0hkf0.uksouth-01.azurewebsites.net",
+        "resources": [
+            {
+                "name": "companies",
+                "displayName": "Companies",
+                "uri": "/resources/companies",
+                "method": "GET",
+                "responseFormat": "json",
+                "description": "List of corporate borrowers (company_id, company_name, sector)"
+            },
+            {
+                "name": "financials",
+                "displayName": "Financials",
+                "url": "/resources/financials/{company_id",
+                "method": "GET",
+                "responseFormat": "json",
+                "pathParameters": [
+                    {"name": "company_id", "required": true }
+                ],
+                "description": "Income statement and balance sheet time series"
+            },
+            {
+                "name": "exposure",
+                "displayName": "Exposure",
+                "uri": "/resources/exposure/{company_id",
+                "method": "GET",
+                "responseFormat": "json",
+                "pathParameters": [
+                    {"name": "company_id", "required": true}
+                ],
+                "description": "Sanctioned limit, utilized amount, overdue, collateral, DPD"
+            },
+            {
+                "name": "covenants",
+                "displayName": "Covenants",
+                "uri": "/resources/covenants/{company_id}",
+                "method": "GET",
+                "responseFormat": "json",
+                "pathParameters": [
+                    {"name": "company_id", "required": true}
+                ],
+                "description": "Covenant thresholds and last actuals"
+            },
+            {
+                "name": "ews",
+                "displayName": "EarlyWarningSignals",
+                "uri": "/resources/ews/{company_id}",
+                "method": "GET",
+                "responseFormat": "json",
+                "pathParameters": [
+                    {"name": "company_id", "required": true}
+                ],
+                "description": "Early warning signal events"
+            }
+        ],
+        "tools": [
+            {
+                "name": "generateReport",
+                "displayName": "Generate Risk Report",
+                "invokeUri": "/tools/generate-report/{company_id}",
+                "method": "POST",
+                "pathParameters": [
+                    {"name": "company_id", "required": true }
+                ],
+                "description": "Create a Word and PDF risk review report and return file paths + metadata"
+            },
+            {
+                "name": "escalateAlert",
+                "displayName": "Escalate Alert",
+                "invokeUrl": "/tools/escalate-alert/{company_id}",
+                "method": "POST",
+                "pathParameters": [
+                    {"name": "company_id", "required": true }
+                ],
+                "description": "Trigger an escalation workflow (e.g., Power Automate) for high risk"
+            }
+        ],
+        "auth": {
+            "scheme": "Bearer",
+            "identity": "EntraAgentId",
+            "agentAssertionHeader": "x_agent_id",
+            "tokenExchange": {
+                "type": "on_behalf_of",
+                "clientID": "",
+                "tenantID": "",
+                "scopes": [
+                    "api://mcp.yourorg.com/.default"
+                ]
+            }
+        },
+        "security": {
+            "requireTls": true,
+            "allowedOrigins": ["https://copilot.microsoft.com", "https://teams.microsoft.com"]
+        }
+    },
+    "workIQHints": {
+        "personality": "formal_business",
+        "preferredReportFormat": "word",
+        "preferredLanguage": "en-GB",
+        "defaultKPIs": ["ebitda", "net_income", "current_ratio", "dscr", "utilization"],
+        "templates": {
+            "quickReview": "short",
+            "detailedReview": "long"
+        }
+    },
+    "metadata": {
+        "owner": "risk-analytics@contoso.com",
+        "contact": "AmyFarah.Fowler@contoso.com",
+        "createdAt": "2025-11-27"
+    }
+}
