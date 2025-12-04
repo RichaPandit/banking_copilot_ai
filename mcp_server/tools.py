@@ -23,6 +23,10 @@ def create_word_report(company_name, financials, exposure, covenants, ews, risk_
     # Validate data presence to avoid iloc errors
     if financials.empty or exposure.empty or covenants.empty:
         raise HTTPException(status_code=400, detail="Insufficient data to generate report")
+ 
+    # Ensure we pick the latest financials
+    if "year" in financials.columns:
+        financials = financials.sort_values("year")
 
     doc = Document()
     doc.add_heading(f"{company_name} - Quaterly Risk Review", level=0)

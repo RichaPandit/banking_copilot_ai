@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
-
+from typing import Optional
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 
@@ -66,8 +66,10 @@ def get_ews(company_id: str, x_agent_id: str = Header(None)):
 # Mount /tools endpoints
 # -----------------------------------------------
 @app.post("/tools/generate-report/{company_id}", response_model=None)
-def generate_report_entry(company_id: str, x_agent_id: str = Header(None)):
+def generate_report_entry(company_id: str, x_agent_id: str = Header(None), x_agent_id_alt: Optional[str] = Header(None, alias="x-agent-id")):
 
+    # Accept both header spellings; validate
+    agent_id = x_agent_id or x_agent_id_alt
     validate_agent_id(x_agent_id)
 
     return generate_report_internal(
