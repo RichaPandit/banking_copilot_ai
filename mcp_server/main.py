@@ -70,8 +70,6 @@ def generate_report_entry(company_id: str, x_agent_id: str = Header(None)):
 
     validate_agent_id(x_agent_id)
 
-    from mcp_server.tools import generate_report
-
     return generate_report_internal(
         company_id=company_id,
         x_agent_id=x_agent_id,
