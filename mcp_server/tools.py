@@ -6,14 +6,24 @@ from rag_logic.risk_scoring import compute_risk_score
 import pandas as pd
 import datetime
 import os
-from typing import Dict
+from typing import Dict, Optional
 
 router = APIRouter()
+
+
+# Use a writable base path on App Service Linux
+BASE_DIR = os.environ.get("APP_BASE_DIR", "/home/site/wwwroot")
+REPORT_DIR = os.path.join(BASE_DIR, "reports", "generated_reports")
 
 # ----------------------------------------------
 # Word Report Generation
 # ----------------------------------------------
 def create_word_report(company_name, financials, exposure, covenants, ews, risk_score, risk_rating, rag_highlights):
+
+    # Validate data presence to avoid iloc errors
+    if financials.empty or exposure.empty or covenants.empty:
+        raise HTTPException(status_code=400, detail="Insufficient data to generate report")
+
     doc = Document()
     doc.add_heading(f"{company_name} - Quaterly Risk Review", level=0)
 
@@ -60,8 +70,12 @@ def create_word_report(company_name, financials, exposure, covenants, ews, risk_
     doc.save(report_path)
 
     # Convert to PDF
-    pdf_path = report_path.replace(".docx", ".pdf")
-    convert(report_path, pdf_path)
+    pdf_path: Optional[str] = report_path.replace(".docx", ".pdf")
+    try:
+        from docx2pdf import convert  # requires Word on Windows/macOS
+        convert(report_path, pdf_path)
+    except Exception:
+        pdf_path = None  # return DOCX-only
 
     return {"word": report_path, "pdf": pdf_path, "rag_highlights": rag_highlights}
 
