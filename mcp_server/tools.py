@@ -22,7 +22,7 @@ def create_word_report(company_name, financials, exposure, covenants, ews, risk_
     latest_fin = financials.iloc[-1]
     doc.add_paragraph(f"Revenue: {latest_fin['revenue']}")
     doc.add_paragraph(f"EBITDA: {latest_fin['ebitda']}")
-    doc.add_paragraph(f"NET Income: {latest_fin['net_income']}")
+    doc.add_paragraph(f"Net Income: {latest_fin['net_income']}")
 
     # Loan Exposure
     doc.add_heading("Loan Exposure:", level=1)
@@ -106,13 +106,10 @@ def generate_report_internal(
         "rag_highlights": report_paths["rag_highlights"]
     }
 
-# Report generation entrypoint
-@router.post("/tools/generate-report/{company_id}", response_model=None)
-def generate_report(company_id: str, x_agent_id: str = Header(None)):
-    return {"message": "Use /tools/generate-report entrypoint in main.py for full report generation"}
-
 # Escalate alert tool
 @router.post("/tools/escalate-alert/{company_id}")
 def escalate_alert(company_id: str, x_agent_id: str = Header(None)):
-    # Placeholder: simulate alert
-    return {"status": "alert_escalated", "company_id": company_id} 
+    if not x_agent_id or not x_agent_id.startswith("agent-"):
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+    # TODO: call your Power Automate / Logic Apps flow here
+    return {"status": "alert_escalated", "company_id": company_id}

@@ -86,4 +86,24 @@ def generate_report_entry(company_id: str, x_agent_id: str = Header(None)):
 def health():
     return {"status": "ok"}
 
+@app.get("/mcp/openapi")
+def mcp_openapi():
+    """
+    Return OpenAPI describing /resources/* and /tools/*.
+    Minimal spec is fine; Studio can parse operations/params.
+    """
+    return {
+      "openapi": "3.0.1",
+      "info": {"title": "Banking MCP Server", "version": "1.0"},
+      "paths": {
+        "/resources/companies": {"get": {"summary": "Companies", "responses": {"200": {"description": "OK"}}}},
+        "/resources/financials/{company_id}": {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+        "/resources/exposure/{company_id}":  {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+        "/resources/covenants/{company_id}": {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+        "/resources/ews/{company_id}":       {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+        "/tools/generate-report/{company_id}": {"post": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}}
+      }
+    }
+
+
 app.include_router(tools_router)

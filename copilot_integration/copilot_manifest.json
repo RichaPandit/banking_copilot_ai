@@ -17,7 +17,7 @@
             {
                 "name": "financials",
                 "displayName": "Financials",
-                "url": "/resources/financials/{company_id",
+                "uri": "/resources/financials/{company_id}",
                 "method": "GET",
                 "responseFormat": "json",
                 "pathParameters": [
@@ -28,7 +28,7 @@
             {
                 "name": "exposure",
                 "displayName": "Exposure",
-                "uri": "/resources/exposure/{company_id",
+                "uri": "/resources/exposure/{company_id}",
                 "method": "GET",
                 "responseFormat": "json",
                 "pathParameters": [
@@ -82,21 +82,17 @@
             }
         ],
         "auth": {
-            "scheme": "Bearer",
-            "identity": "EntraAgentId",
-            "agentAssertionHeader": "x_agent_id",
-            "tokenExchange": {
-                "type": "on_behalf_of",
-                "clientID": "",
-                "tenantID": "",
-                "scopes": [
-                    "api://mcp.yourorg.com/.default"
-                ]
-            }
+            "scheme": "ApiKey",
+            "headerName": "x_agent_id",
+            "description": "Provide the agent ID or assertion header required by MCP server."
+            
         },
         "security": {
             "requireTls": true,
             "allowedOrigins": ["https://copilot.microsoft.com", "https://teams.microsoft.com"]
+        },
+        "transport": {
+            "useStreamableHttp": true
         }
     },
     "workIQHints": {
