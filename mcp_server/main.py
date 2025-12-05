@@ -1,19 +1,28 @@
-from fastapi import Request, HTTPException, FastAPI, Header
+from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import Request
-from pydantic import BaseModel
-import pandas as pd
-import json
+from starlette.middleware.base import BaseHTTPMiddleware
+from typing import Optional, Dict, Any
 import logging
+import json
+import pandas as pd
 from datetime import datetime
-from typing import Optional
+
+# Import mcp_server tools
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
-from starlette.middleware.base import BaseHTTPMiddleware
 
-JSONRPC_VERSION = "2.0"
-PROTOCOL_VERSION = "2024-11-05"  # example protocol tag Copilot Studio understands
+# ------------------------------------------------------------------
+# Constants
+# ------------------------------------------------------------------
+JSONRPC_VERSION: str = "2.0"
+PROTOCOL_VERSION: str = "2024-11-05"  # Protocol tag Copilot Studio understands
+AGENT_HEADER: str = "x-agent-key"     # Hyphenated header to avoid proxy stripping
+MAX_LIST_LIMIT: int = 200
+DEFAULT_LIST_LIMIT: int = 50
 
+# ------------------------------------------------------------------
+# FastAPI app and logging
+# ------------------------------------------------------------------
 app = FastAPI(
     title="Banking MCP Server",
     description="MCP Server for Banking Risk Intelligence Agent (Finance + RAG + PDF/Word Reports)",
@@ -26,17 +35,20 @@ logger = logging.getLogger("banking-mcp")
 class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         # Log method, path, and target headers
-        logger.info("REQ %s %s | x-agent-id=%s x_agent_id=%s",
-                    request.method, request.url.path,
-                    request.headers.get("x-agent-id"),
-                    request.headers.get("x_agent_id"))
+        logger.info(
+            "REQ %s %s | %s=%s %s=%s",
+            request.method,
+            request.url.path,
+            AGENT_HEADER,
+            request.headers.get(AGENT_HEADER),
+            AGENT_HEADER.replace('-', '_'),
+            request.headers.get(AGENT_HEADER.replace('-', '_')),
+        )
         response = await call_next(request)
         logger.info("RESP %s %s | status=%s", request.method, request.url.path, response.status_code)
         return response
 
-# ----------------------------------------------
-# 1) Allow local dev, Postman, Copilot, PowerApps, etc
-# -----------------------------------------------
+# CORS (inner) then logging (outer)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,7 +56,6 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# 2) Add logging last (will be outer layer; runs first on requests)
 app.add_middleware(RequestLogMiddleware)
 
 # ----------------------------------------------
@@ -56,24 +67,30 @@ exposure = load_csv("data/exposure.csv")
 covenants = load_csv("data/covenants.csv")
 ews = load_csv("data/ews.csv")
 
-def jsonrpc_result(req_id, result):
+def jsonrpc_result(req_id: Optional[str], result: Dict[str, Any]) -> Dict[str, Any]:
     return {"jsonrpc": JSONRPC_VERSION, "id": str(req_id), "result": result}
 
-def jsonrpc_error(req_id, code, message, data=None):
+def jsonrpc_error(req_id: Optional[str], code: int, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     err = {"code": code, "message": message}
     if data is not None:
         err["data"] = data
-    return {"jsonrpc": JSONRPC_VERSION, "id": str(req_id) if req_id is not None else None, "error": err}
+    return {"jsonrpc": JSONRPC_VERSION, "id": (str(req_id) if req_id is not None else None), "error": err}
 
-def get_agent_id_from_headers(x_agent_id: Optional[str], x_agent_id_alt: Optional[str]):
-    agent_id = x_agent_id or x_agent_id_alt
+
+# ------------------------------------------------------------------
+# Utility: resolve and validate agent header
+# ------------------------------------------------------------------
+def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
+    agent_id = primary or alternate
     if not agent_id:
-        raise HTTPException(status_code=401, detail="Missing API key header (x_agent_id or x-agent-id)")
-    validate_agent_id(agent_id)
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+    validate_agent_id(agent_id)  # Enforces prefix like `agent-`
     return agent_id
 
-# --- tool definitions exposed via MCP ---
-def mcp_tools_list():
+# ------------------------------------------------------------------
+# MCP tool definitions
+# ------------------------------------------------------------------
+def mcp_tools_list() -> Dict[str, Any]:
     return {
         "tools": [
             {
@@ -82,7 +99,7 @@ def mcp_tools_list():
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "limit": {"type": "integer", "minimum": 1, "maximum": 200},
+                        "limit":  {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT},
                         "offset": {"type": "integer", "minimum": 0}
                     },
                     "additionalProperties": False
@@ -92,9 +109,9 @@ def mcp_tools_list():
                     "items": {
                         "type": "object",
                         "properties": {
-                            "company_id": {"type": "string"},
+                            "company_id":   {"type": "string"},
                             "company_name": {"type": "string"},
-                            "sector": {"type": "string"}
+                            "sector":       {"type": "string"}
                         },
                         "required": ["company_id", "company_name"]
                     }
@@ -109,7 +126,7 @@ def mcp_tools_list():
                     "required": ["company_id"],
                     "additionalProperties": False
                 },
-                "outputSchema": {"type": "object"}  # tailor to your payload
+                "outputSchema": {"type": "object"}
             },
             {
                 "name": "getExposure",
@@ -151,7 +168,7 @@ def mcp_tools_list():
                     "type": "object",
                     "properties": {
                         "company_id": {"type": "string"},
-                        "format": {"type": "string", "enum": ["word", "pdf"]}  # enums are treated as strings by Studio
+                        "format": {"type": "string", "enum": ["word", "pdf"]}
                     },
                     "required": ["company_id"],
                     "additionalProperties": False
@@ -159,8 +176,8 @@ def mcp_tools_list():
                 "outputSchema": {
                     "type": "object",
                     "properties": {
-                        "word_path": {"type": "string"},
-                        "pdf_path": {"type": "string"},
+                        "word_path":  {"type": "string"},
+                        "pdf_path":   {"type": "string"},
                         "created_at": {"type": "string", "format": "date-time"}
                     }
                 }
@@ -168,13 +185,21 @@ def mcp_tools_list():
         ]
     }
 
-async def mcp_tools_dispatch(name: str, args: dict, agent_id: str):
-    # Simple router
+# ------------------------------------------------------------------
+# MCP tool dispatcher
+# ------------------------------------------------------------------
+def _require(d: Dict[str, Any], key: str) -> str:
+    v = d.get(key)
+    if not v:
+        raise ValueError(f"Missing required argument '{key}'")
+    return v
+
+async def mcp_tools_dispatch(name: str, args: Dict[str, Any], agent_id: str) -> Any:
     if name == "getCompanies":
-        # page/limit to keep payloads < 500KB for Studio connector pipeline
-        limit = int(args.get("limit", 50))
+        limit = int(args.get("limit", DEFAULT_LIST_LIMIT))
         offset = int(args.get("offset", 0))
-        rows = companies.iloc[offset: offset + min(limit, 200)]
+        limit = min(max(limit, 1), MAX_LIST_LIMIT)
+        rows = companies.iloc[offset: offset + limit]
         return rows.to_dict(orient="records")
 
     if name == "getFinancials":
@@ -200,7 +225,6 @@ async def mcp_tools_dispatch(name: str, args: dict, agent_id: str):
     if name == "generateReport":
         company_id = _require(args, "company_id")
         fmt = args.get("format", "pdf")
-        # Call your internal report generator
         resp = generate_report_internal(
             company_id=company_id,
             x_agent_id=agent_id,
@@ -210,124 +234,142 @@ async def mcp_tools_dispatch(name: str, args: dict, agent_id: str):
             covenants=covenants,
             ews=ews
         )
-        # Ensure a stable shape
         return {
             "company_id": company_id,
-            "word_path": resp.get("word_path"),
-            "pdf_path": resp.get("pdf_path"),
+            "word_path":  resp.get("word_path"),
+            "pdf_path":   resp.get("pdf_path"),
             "created_at": datetime.utcnow().isoformat() + "Z",
             "format": fmt
         }
 
     raise ValueError(f"Unknown tool: {name}")
 
-def _require(d: dict, key: str) -> str:
-    v = d.get(key)
-    if not v:
-        raise ValueError(f"Missing required argument '{key}'")
-    return v
-
 # ----------------------------------------------
-# MCP SOURCE ENDPOINTS
+# MCP SOURCE ENDPOINTS (protected by x-agent-key)
 # -----------------------------------------------
 @app.get("/resources/companies")
-def get_companies(x_agent_id: str = Header(None)):
-    validate_agent_id(x_agent_id)
-    return companies.to_dict(orient="records")
+def get_companies_endpoint(
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+    limit: int = DEFAULT_LIST_LIMIT,
+    offset: int = 0
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
+    # Limit response size to avoid Studio connector failures
+    limit = min(max(limit, 1), MAX_LIST_LIMIT)
+    rows = companies.iloc[offset: offset + limit]
+    return rows.to_dict(orient="records")
+
 
 @app.get("/resources/financials/{company_id}")
-def get_financials(company_id: str, x_agent_id: str = Header(None)):
-    validate_agent_id(x_agent_id)
+def get_financials_endpoint(
+    company_id: str,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = financials[financials["company_id"] == company_id]
     return data.to_dict(orient="records")
 
+
 @app.get("/resources/exposure/{company_id}")
-def get_exposure(company_id: str, x_agent_id: str = Header(None)):
-    validate_agent_id(x_agent_id)
+def get_exposure_endpoint(
+    company_id: str,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = exposure[exposure["company_id"] == company_id]
     return data.to_dict(orient="records")
 
+
 @app.get("/resources/covenants/{company_id}")
-def get_covenants(company_id: str, x_agent_id: str = Header(None)):
-    validate_agent_id(x_agent_id)
+def get_covenants_endpoint(
+    company_id: str,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = covenants[covenants["company_id"] == company_id]
     return data.to_dict(orient="records")
 
+
 @app.get("/resources/ews/{company_id}")
-def get_ews(company_id: str, x_agent_id: str = Header(None)):
-    validate_agent_id(x_agent_id)
+def get_ews_endpoint(
+    company_id: str,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
-
-@app.get("/debug/headers")
-async def debug_headers(request: Request):
-    headers = dict(request.headers)
-    return {
-        "x-agent-id": headers.get("x-agent-id"),
-        "x_agent_id": headers.get("x_agent_id"),
-        "user-agent": headers.get("user-agent"),
-        "content-type": headers.get("content-type")
-    }
 
 # ----------------------------------------------
 # Mount /tools endpoints
 # -----------------------------------------------
-@app.post("/tools/generate-report/{company_id}", response_model=None)
-def generate_report_entry(company_id: str, x_agent_id: str = Header(None), x_agent_id_alt: Optional[str] = Header(None, alias="x-agent-id")):
-
-    # Accept both header spellings; validate
-    agent_id = x_agent_id or x_agent_id_alt
-    validate_agent_id(agent_id)
-
+@app.post("/tools/generate-report/{company_id}")
+def generate_report_entry(
+    company_id: str,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     return generate_report_internal(
         company_id=company_id,
-        x_agent_id=x_agent_id,
+        x_agent_id=agent_id,
         companies=companies,
         financials=financials,
         exposure=exposure,
         covenants=covenants,
         ews=ews
     )
-    
+
+# ------------------------------------------------------------------
+# Health/debug
+# ------------------------------------------------------------------    
 @app.get("/health")
 def health():
+    logger.info("HEALTH CHECK HIT")
     return {"status": "ok"}
 
-@app.get("/mcp/openapi")
-def mcp_openapi():
-    """
-    Return OpenAPI describing /resources/* and /tools/*.
-    Minimal spec is fine; Studio can parse operations/params.
-    """
+
+@app.get("/debug/headers")
+async def debug_headers(request: Request):
+    headers = dict(request.headers)
     return {
-      "openapi": "3.0.1",
-      "info": {"title": "Banking MCP Server", "version": "1.0"},
-      "paths": {
-        "/resources/companies": {"get": {"summary": "Companies", "responses": {"200": {"description": "OK"}}}},
-        "/resources/financials/{company_id}": {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
-        "/resources/exposure/{company_id}":  {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
-        "/resources/covenants/{company_id}": {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
-        "/resources/ews/{company_id}":       {"get": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
-        "/tools/generate-report/{company_id}": {"post": {"parameters": [{"name": "company_id","in": "path","required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}}
-      }
+        AGENT_HEADER: headers.get(AGENT_HEADER),
+        AGENT_HEADER.replace('-', '_'): headers.get(AGENT_HEADER.replace('-', '_')),
+        "user-agent": headers.get("user-agent"),
+        "content-type": headers.get("content-type"),
     }
 
+# ------------------------------------------------------------------
+# MCP JSON-RPC endpoint (Streamable HTTP style)
+# ------------------------------------------------------------------
 @app.post("/mcp")
-async def mcp_endpoint(request: Request, x_agent_id: Optional[str] = Header(None), x_agent_id_alt: Optional[str] = Header(None, alias="x-agent-id")):
-    """
-    Streamable HTTP style: Copilot Studio sends discrete JSON-RPC 2.0 POSTs.
-    We return a single JSON-RPC response per call.
-    """
-    
-    headers = dict(request.headers)
-    print("HEADERS:", headers.get("x-agent-id"), headers.get("x_agent_id"))
+async def mcp_endpoint(
+    request: Request,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    # Resolve & validate auth first
+    try:
+        agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
+    except HTTPException as ex:
+        # We still want to parse JSON to echo the id if possible
+        try:
+            payload = await request.json()
+            req_id = payload.get("id")
+        except Exception:
+            req_id = None
+        return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
 
+    # Parse JSON-RPC
     try:
         payload = await request.json()
     except Exception:
         return jsonrpc_error(None, -32700, "Parse error")
 
-    # Support batch? Copilot Studio uses single calls here; handle object only
     if not isinstance(payload, dict):
         return jsonrpc_error(None, -32600, "Invalid Request (expected object)")
 
@@ -335,26 +377,15 @@ async def mcp_endpoint(request: Request, x_agent_id: Optional[str] = Header(None
     method = payload.get("method")
     params = payload.get("params", {}) or {}
 
-    # Validate auth (API key header)
-    try:
-        agent_id = get_agent_id_from_headers(x_agent_id, x_agent_id_alt)
-    except HTTPException as ex:
-        return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
-
-    # Route by method
     if method == "initialize":
         result = {
             "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {
-                "tools": {"listChanged": True}
-                # optional: "logging": {}, "prompts": {"listChanged": True}, "resources": {"listChanged": True}
-            },
+            "capabilities": {"tools": {"listChanged": True}},
             "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
         return jsonrpc_result(req_id, result)
 
     if method == "notifications/initialized":
-        # No response body is required by JSON-RPC; return success ack
         return jsonrpc_result(req_id, {"ok": True})
 
     if method == "tools/list":
@@ -368,12 +399,25 @@ async def mcp_endpoint(request: Request, x_agent_id: Optional[str] = Header(None
             return jsonrpc_result(req_id, {"content": result})
         except ValueError as ve:
             return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
-        except Exception as e:
-            # Avoid leaking internals; log e server-side
+        except Exception:
             return jsonrpc_error(req_id, -32000, "Server error")
 
-    # Unknown method
     return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
+# OpenAPI preview endpoint
+@app.get("/mcp/openapi")
+def mcp_openapi():
+    return {
+        "openapi": "3.0.1",
+        "info": {"title": "Banking MCP Server", "version": "1.0"},
+        "paths": {
+            "/resources/companies": {"get": {"summary": "Companies", "responses": {"200": {"description": "OK"}}}},
+            "/resources/financials/{company_id}": {"get": {"parameters": [{"name": "company_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+            "/resources/exposure/{company_id}":  {"get": {"parameters": [{"name": "company_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+            "/resources/covenants/{company_id}": {"get": {"parameters": [{"name": "company_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+            "/resources/ews/{company_id}":       {"get": {"parameters": [{"name": "company_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}},
+            "/tools/generate-report/{company_id}": {"post": {"parameters": [{"name": "company_id", "in": "path", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "OK"}}}}
+        }
+    }
 
 app.include_router(tools_router)
