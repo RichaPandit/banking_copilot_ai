@@ -352,18 +352,6 @@ async def mcp_endpoint(
     x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
     x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
 ):
-    # Resolve & validate auth first
-    try:
-        agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
-    except HTTPException as ex:
-        # We still want to parse JSON to echo the id if possible
-        try:
-            payload = await request.json()
-            req_id = payload.get("id")
-        except Exception:
-            req_id = None
-        return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
-
     # Parse JSON-RPC
     try:
         payload = await request.json()
@@ -377,6 +365,18 @@ async def mcp_endpoint(
     method = payload.get("method")
     params = payload.get("params", {}) or {}
 
+    # Methods allowed WITHOUT auth: initialize, notifications/initialized, tools/list
+    discovery_methods = {"initialize", "notifications/initialized", "tools/list"}
+    if method not in discovery_methods:
+        # Enforce API key for tools/call and any future methods
+        try:
+            agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
+        except HTTPException as ex:
+            return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
+    else:
+        agent_id = x_agent_key or x_agent_key_alt or "agent-probe"  # not used for discovery
+
+    # Route by method
     if method == "initialize":
         result = {
             "protocolVersion": PROTOCOL_VERSION,
