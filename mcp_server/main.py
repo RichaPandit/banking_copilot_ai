@@ -1,12 +1,15 @@
 from fastapi import Request, HTTPException, FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request
 from pydantic import BaseModel
 import pandas as pd
 import json
+import logging
 from datetime import datetime
 from typing import Optional
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
+from starlette.middleware.base import BaseHTTPMiddleware
 
 JSONRPC_VERSION = "2.0"
 PROTOCOL_VERSION = "2024-11-05"  # example protocol tag Copilot Studio understands
@@ -17,8 +20,22 @@ app = FastAPI(
     version="1.0"
 )
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("banking-mcp")
+
+class RequestLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Log method, path, and target headers
+        logger.info("REQ %s %s | x-agent-id=%s x_agent_id=%s",
+                    request.method, request.url.path,
+                    request.headers.get("x-agent-id"),
+                    request.headers.get("x_agent_id"))
+        response = await call_next(request)
+        logger.info("RESP %s %s | status=%s", request.method, request.url.path, response.status_code)
+        return response
+
 # ----------------------------------------------
-# Allow local dev, Postman, Copilot, PowerApps, etc
+# 1) Allow local dev, Postman, Copilot, PowerApps, etc
 # -----------------------------------------------
 app.add_middleware(
     CORSMiddleware,
@@ -26,6 +43,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# 2) Add logging last (will be outer layer; runs first on requests)
+app.add_middleware(RequestLogMiddleware)
 
 # ----------------------------------------------
 # Load all CSV data once (global dataframes)
@@ -238,7 +258,17 @@ def get_ews(company_id: str, x_agent_id: str = Header(None)):
     validate_agent_id(x_agent_id)
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
-    
+
+@app.get("/debug/headers")
+async def debug_headers(request: Request):
+    headers = dict(request.headers)
+    return {
+        "x-agent-id": headers.get("x-agent-id"),
+        "x_agent_id": headers.get("x_agent_id"),
+        "user-agent": headers.get("user-agent"),
+        "content-type": headers.get("content-type")
+    }
+
 # ----------------------------------------------
 # Mount /tools endpoints
 # -----------------------------------------------
