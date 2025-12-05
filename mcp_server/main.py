@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional, Dict, Any
 import logging
@@ -75,7 +76,6 @@ def jsonrpc_error(req_id: Optional[str], code: int, message: str, data: Optional
     if data is not None:
         err["data"] = data
     return {"jsonrpc": JSONRPC_VERSION, "id": (str(req_id) if req_id is not None else None), "error": err}
-
 
 # ------------------------------------------------------------------
 # Utility: resolve and validate agent header
@@ -247,13 +247,17 @@ async def mcp_tools_dispatch(name: str, args: Dict[str, Any], agent_id: str) -> 
 async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Dict[str, Any]:
     # Validate payload
     if not isinstance(payload, dict):
-        return jsonrpc_error(None, -32600, "Invalid Request (expected object)")
+        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object)")), media_type="application/json")
 
     req_id = payload.get("id")
     method = payload.get("method")
     params = payload.get("params", {}) or {}
 
-    discovery_methods = {"initialize", "notifications/initialized", "tools/list"}
+    # Notifications MUST NOT send a response body per JSON-RPC 2.0
+    if method == "notifications/initialized":
+        return Response(status_code=204)
+
+    discovery_methods = {"initialize", "tools/list"}
 
     # Decide auth
     if method in discovery_methods and allow_unauth_discovery:
@@ -262,7 +266,7 @@ async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_age
         try:
             agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
         except HTTPException as ex:
-            return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
+            return Response(content=json.dumps(jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")), media_type="application/json")
 
     # Route
     if method == "initialize":
@@ -271,26 +275,23 @@ async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_age
             "capabilities": {"tools": {"listChanged": True}},
             "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
-        return jsonrpc_result(req_id, result)
-
-    if method == "notifications/initialized":
-        return jsonrpc_result(req_id, {"ok": True})
+        return Response(content=json.dumps(jsonrpc_result(req_id, result)), media_type="application/json")
 
     if method == "tools/list":
-        return jsonrpc_result(req_id, mcp_tools_list())
+        return Response(content=json.dumps(jsonrpc_result(req_id, mcp_tools_list())), media_type="application/json")
 
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments") or {}
         try:
             result = await mcp_tools_dispatch(name, arguments, agent_id)
-            return jsonrpc_result(req_id, {"content": result})
+            return Response(content=json.dumps(jsonrpc_result(req_id, {"content": result})), media_type="application/json")
         except ValueError as ve:
-            return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
+            return Response(content=json.dumps(jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")), media_type="application/json")
         except Exception:
-            return jsonrpc_error(req_id, -32000, "Server error")
+            return Response(content=json.dumps(jsonrpc_error(req_id, -32000, "Server error")), media_type="application/json")
 
-    return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
+    return Response(content=json.dumps(jsonrpc_error(req_id, -32601, f"Method not found: {method}")), media_type="application/json")
 
 # ----------------------------------------------
 # MCP SOURCE ENDPOINTS (protected by x-agent-key)
@@ -405,6 +406,10 @@ async def mcp_endpoint(
         payload = await request.json()
     except Exception:
         return jsonrpc_error(None, -32700, "Parse error")
+    
+    # suppress response for JSON-RPC notifications
+    if isinstance(payload, dict) and payload.get("method") == "notifications/initialized":
+        return Response(status_code=204)
 
     return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
 
@@ -429,6 +434,11 @@ async def root_forward(
         return {"message": "Root accepts GET 200; use POST /mcp (JSON-RPC)."}
 
     logger.info("ROOT POST forwarding payload: %s", str(payload)[:500])
+
+    # suppress response for JSON-RPC notifications
+    if isinstance(payload, dict) and payload.get("method") == "notifications/initialized":
+        return Response(status_code=204)
+    
     return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
 
 # OpenAPI preview endpoint
