@@ -288,6 +288,10 @@ async def mcp_endpoint(request: Request, x_agent_id: Optional[str] = Header(None
     Streamable HTTP style: Copilot Studio sends discrete JSON-RPC 2.0 POSTs.
     We return a single JSON-RPC response per call.
     """
+    
+    headers = dict(request.headers)
+    print("HEADERS:", headers.get("x-agent-id"), headers.get("x_agent_id"))
+
     try:
         payload = await request.json()
     except Exception:
