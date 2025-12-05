@@ -244,6 +244,54 @@ async def mcp_tools_dispatch(name: str, args: Dict[str, Any], agent_id: str) -> 
 
     raise ValueError(f"Unknown tool: {name}")
 
+async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Dict[str, Any]:
+    # Validate payload
+    if not isinstance(payload, dict):
+        return jsonrpc_error(None, -32600, "Invalid Request (expected object)")
+
+    req_id = payload.get("id")
+    method = payload.get("method")
+    params = payload.get("params", {}) or {}
+
+    discovery_methods = {"initialize", "notifications/initialized", "tools/list"}
+
+    # Decide auth
+    if method in discovery_methods and allow_unauth_discovery:
+        agent_id = x_agent_key or x_agent_key_alt or "agent-probe"
+    else:
+        try:
+            agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
+        except HTTPException as ex:
+            return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
+
+    # Route
+    if method == "initialize":
+        result = {
+            "protocolVersion": PROTOCOL_VERSION,
+            "capabilities": {"tools": {"listChanged": True}},
+            "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
+        }
+        return jsonrpc_result(req_id, result)
+
+    if method == "notifications/initialized":
+        return jsonrpc_result(req_id, {"ok": True})
+
+    if method == "tools/list":
+        return jsonrpc_result(req_id, mcp_tools_list())
+
+    if method == "tools/call":
+        name = params.get("name")
+        arguments = params.get("arguments") or {}
+        try:
+            result = await mcp_tools_dispatch(name, arguments, agent_id)
+            return jsonrpc_result(req_id, {"content": result})
+        except ValueError as ve:
+            return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
+        except Exception:
+            return jsonrpc_error(req_id, -32000, "Server error")
+
+    return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
+
 # ----------------------------------------------
 # MCP SOURCE ENDPOINTS (protected by x-agent-key)
 # -----------------------------------------------
@@ -358,51 +406,7 @@ async def mcp_endpoint(
     except Exception:
         return jsonrpc_error(None, -32700, "Parse error")
 
-    if not isinstance(payload, dict):
-        return jsonrpc_error(None, -32600, "Invalid Request (expected object)")
-
-    req_id = payload.get("id")
-    method = payload.get("method")
-    params = payload.get("params", {}) or {}
-
-    # Methods allowed WITHOUT auth: initialize, notifications/initialized, tools/list
-    discovery_methods = {"initialize", "notifications/initialized", "tools/list"}
-    if method not in discovery_methods:
-        # Enforce API key for tools/call and any future methods
-        try:
-            agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
-        except HTTPException as ex:
-            return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
-    else:
-        agent_id = x_agent_key or x_agent_key_alt or "agent-probe"  # not used for discovery
-
-    # Route by method
-    if method == "initialize":
-        result = {
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {"tools": {"listChanged": True}},
-            "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
-        }
-        return jsonrpc_result(req_id, result)
-
-    if method == "notifications/initialized":
-        return jsonrpc_result(req_id, {"ok": True})
-
-    if method == "tools/list":
-        return jsonrpc_result(req_id, mcp_tools_list())
-
-    if method == "tools/call":
-        name = params.get("name")
-        arguments = params.get("arguments") or {}
-        try:
-            result = await mcp_tools_dispatch(name, arguments, agent_id)
-            return jsonrpc_result(req_id, {"content": result})
-        except ValueError as ve:
-            return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
-        except Exception:
-            return jsonrpc_error(req_id, -32000, "Server error")
-
-    return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
+    return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
 
 # --- NEW: Root handlers so onboarding probe passes ---
 @app.get("/")
@@ -411,20 +415,21 @@ def root_probe():
     return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp"}
 
 @app.post("/")
-async def root_passthrough(
+async def root_forward(
     request: Request,
     x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
     x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
 ):
-    """If the client posts JSON-RPC to '/', forward to /mcp when auth is present; else return 200 info."""
-    if x_agent_key or x_agent_key_alt:
-        return await mcp_endpoint(request, x_agent_key=x_agent_key, x_agent_key_alt=x_agent_key_alt)
-    # No auth header: respond 200 with guidance so probe succeeds
+    # Unconditionally forward JSON-RPC payloads to MCP processor (discovery allowed without auth)
+    raw = await request.body()
     try:
-        _ = await request.json()
-        return {"message": "Use POST /mcp with API key header.", "mcpEntry": "/mcp"}
+        payload = await request.json()
     except Exception:
-        return {"message": "Root accepts GET 200; use POST /mcp for MCP."}
+        logger.info("ROOT POST non-JSON body: %s", raw[:200])
+        return {"message": "Root accepts GET 200; use POST /mcp (JSON-RPC)."}
+
+    logger.info("ROOT POST forwarding payload: %s", str(payload)[:500])
+    return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
 
 # OpenAPI preview endpoint
 @app.get("/mcp/openapi")
