@@ -404,6 +404,28 @@ async def mcp_endpoint(
 
     return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
+# --- NEW: Root handlers so onboarding probe passes ---
+@app.get("/")
+def root_probe():
+    """Return 200 OK to allow connector wizard to proceed."""
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp"}
+
+@app.post("/")
+async def root_passthrough(
+    request: Request,
+    x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
+    x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')),
+):
+    """If the client posts JSON-RPC to '/', forward to /mcp when auth is present; else return 200 info."""
+    if x_agent_key or x_agent_key_alt:
+        return await mcp_endpoint(request, x_agent_key=x_agent_key, x_agent_key_alt=x_agent_key_alt)
+    # No auth header: respond 200 with guidance so probe succeeds
+    try:
+        _ = await request.json()
+        return {"message": "Use POST /mcp with API key header.", "mcpEntry": "/mcp"}
+    except Exception:
+        return {"message": "Root accepts GET 200; use POST /mcp for MCP."}
+
 # OpenAPI preview endpoint
 @app.get("/mcp/openapi")
 def mcp_openapi():
