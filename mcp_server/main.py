@@ -2,9 +2,9 @@
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import Response, RedirectResponse
+from fastapi.responses import Response
 from typing import Optional, Dict, Any, List
-import logging, json
+import logging, json, os
 from datetime import datetime
 import pandas as pd
 
@@ -16,6 +16,7 @@ PROTOCOL_VERSION: str = "2024-11-05"
 AGENT_HEADER: str = "x-agent-key"
 MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
+DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")  # e.g., "agent-007"
 
 app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
 
@@ -81,7 +82,6 @@ def mcp_tools_list() -> Dict[str, Any]:
     }
 
 def mcp_resources_list() -> Dict[str, Any]:
-    # Minimal stub so Studio stops failing on resources discovery
     return {"resources": []}
 
 async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
@@ -117,30 +117,30 @@ async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
     raise ValueError(f"Unknown tool: {name}")
 
 async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Optional[Dict[str, Any]]:
-    # Return a single JSON-RPC response dict, or None for notifications
     req_id = payload.get("id")
     method = payload.get("method")
     params = payload.get("params", {}) or {}
 
-    # Missing method → Invalid Request (-32600)
     if not method:
         return jsonrpc_error(req_id, -32600, "Invalid Request")
 
-    # Notifications MUST NOT send a response body
     if method == "notifications/initialized":
         return None
 
-    # Discovery allowed without auth
     discovery_methods = {"initialize", "tools/list", "resources/list"}
     if method in discovery_methods and allow_unauth_discovery:
         agent_id = x_agent_key or x_agent_key_alt or "agent-probe"
     else:
+        # Dev-only fallback: if header missing and env var set, use it
+        fallback = DEV_ASSUME_KEY if DEV_ASSUME_KEY else None
         try:
-            agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
+            agent_id = (x_agent_key or x_agent_key_alt or fallback)
+            if not agent_id:
+                raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+            validate_agent_id(agent_id)
         except HTTPException as ex:
             return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
 
-    # Route
     if method == "initialize":
         result = {
             "protocolVersion": PROTOCOL_VERSION,
@@ -172,23 +172,16 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
-# --- 307 redirect from POST / to POST /mcp ---
+# --- Root: process JSON-RPC directly (no redirect) ---
 @app.post("/")
-async def root_redirect():
-    return RedirectResponse(url="/mcp", status_code=307)
-
-# MCP JSON-RPC endpoint with batch support
-@app.post("/mcp")
-async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
     try:
         payload = await request.json()
     except Exception:
-        # Parse error (-32700)
         return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
 
-    # If batch array arrives with malformed/empty items, be tolerant
+    # Batch handling for root as well
     if isinstance(payload, list):
-        # If all elements lack 'method', return an empty array (some clients probe this way)
         if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
             logger.info("Batch probe received without methods; returning empty array to satisfy client")
             return Response(content="[]", media_type="application/json")
@@ -198,29 +191,57 @@ async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(Non
                 responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
                 continue
             resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-            if resp is not None:  # Skip notifications
+            if resp is not None:
                 responses.append(resp)
         return Response(content=json.dumps(responses), media_type="application/json")
 
-    # Single request object
     if not isinstance(payload, dict):
         return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
 
     resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-    if resp is None:  # notification → no body
+    if resp is None:
         return Response(status_code=204)
     return Response(content=json.dumps(resp), media_type="application/json")
 
-# Health & probe
+# MCP endpoint keeps same behavior
+@app.post("/mcp")
+async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+    try:
+        payload = await request.json()
+    except Exception:
+        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
+
+    if isinstance(payload, list):
+        if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
+            logger.info("Batch probe received without methods; returning empty array to satisfy client")
+            return Response(content="[]", media_type="application/json")
+        responses: List[Dict[str, Any]] = []
+        for el in payload:
+            if not isinstance(el, dict):
+                responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
+                continue
+            resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+            if resp is not None:
+                responses.append(resp)
+        return Response(content=json.dumps(responses), media_type="application/json")
+
+    if not isinstance(payload, dict):
+        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
+
+    resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+    if resp is None:
+        return Response(status_code=204)
+    return Response(content=json.dumps(resp), media_type="application/json")
+
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched7"}
+    return {"status": "ok", "variant": "patched8", "dev_assume_key": bool(DEV_ASSUME_KEY)}
 
 @app.get("/")
 def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched7"}
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched8"}
 
-# REST endpoints remain as before
+# REST endpoints
 @app.get("/resources/companies")
 def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
