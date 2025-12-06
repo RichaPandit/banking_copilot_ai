@@ -51,6 +51,112 @@ def jsonrpc_error(req_id: Any, code: int, message: str, data: Optional[Dict[str,
         err["data"] = data
     return {"jsonrpc": JSONRPC_VERSION, "id": req_id, "error": err}
 
+# --- Missing helpers now added ---
+
+def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
+    """Resolve and validate the agent id from headers; raise 401 if missing/invalid."""
+    agent_id = primary or alternate
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+    validate_agent_id(agent_id)
+    return agent_id
+
+def mcp_tools_list() -> Dict[str, Any]:
+    """Return a Studio-friendly list of tools (no $ref, strict schemas)."""
+    return {
+        "tools": [
+            {
+                "name": "getCompanies",
+                "description": "Return borrowers: company_id, company_name, sector.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit":  {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT},
+                        "offset": {"type": "integer", "minimum": 0}
+                    },
+                    "additionalProperties": False
+                },
+                "outputSchema": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "company_id":   {"type": "string"},
+                            "company_name": {"type": "string"},
+                            "sector":       {"type": "string"}
+                        },
+                        "required": ["company_id", "company_name"]
+                    }
+                }
+            },
+            {
+                "name": "getFinancials",
+                "description": "Return time series for a company.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"company_id": {"type": "string"}},
+                    "required": ["company_id"],
+                    "additionalProperties": False
+                },
+                "outputSchema": {"type": "object"}
+            },
+            {
+                "name": "getExposure",
+                "description": "Return sanctioned limit, utilized amount, overdue, collateral, DPD.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"company_id": {"type": "string"}},
+                    "required": ["company_id"],
+                    "additionalProperties": False
+                },
+                "outputSchema": {"type": "object"}
+            },
+            {
+                "name": "getCovenants",
+                "description": "Return covenant thresholds and last actuals.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"company_id": {"type": "string"}},
+                    "required": ["company_id"],
+                    "additionalProperties": False
+                },
+                "outputSchema": {"type": "object"}
+            },
+            {
+                "name": "getEws",
+                "description": "Return early warning signal events.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"company_id": {"type": "string"}},
+                    "required": ["company_id"],
+                    "additionalProperties": False
+                },
+                "outputSchema": {"type": "object"}
+            },
+            {
+                "name": "generateReport",
+                "description": "Create a Word/PDF risk review report; return file paths + metadata.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "company_id": {"type": "string"},
+                        "format": {"type": "string", "enum": ["word", "pdf"]}
+                    },
+                    "required": ["company_id"],
+                    "additionalProperties": False
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "word_path":  {"type": "string"},
+                        "pdf_path":   {"type": "string"},
+                        "created_at": {"type": "string", "format": "date-time"}
+                    }
+                }
+            }
+        ]
+    }
+
 async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
     if name == "getCompanies":
         limit = int(args.get("limit", DEFAULT_LIST_LIMIT)); offset = int(args.get("offset", 0))
@@ -93,9 +199,8 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
     if not method:
         return jsonrpc_error(req_id, -32600, "Invalid Request")
 
-    # notifications MUST NOT have an id; return HTTP 200 with empty body (instead of 204) for client compatibility
     if method == "notifications/initialized":
-        return None  # we'll map to 200 downstream
+        return None
 
     discovery_methods = {"initialize", "tools/list", "resources/list"}
     if method in discovery_methods and allow_unauth_discovery:
@@ -120,7 +225,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                 "prompts": {"listChanged": True},
                 "resources": {"listChanged": True}
             },
-            "serverInfo": {"name": "BankingMCP", "version": "1.0.0", "description": "Credit Risk MCP"}
+            "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
         return jsonrpc_result(req_id, result)
 
@@ -169,7 +274,6 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
 
     resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
     if resp is None:
-        # notification → return 200 with no body (compat mode)
         return Response(status_code=200)
     return Response(content=json.dumps(resp), media_type="application/json")
 
@@ -183,13 +287,13 @@ async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(Non
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched10", "dev_assume_key": bool(DEV_ASSUME_KEY)}
+    return {"status": "ok", "variant": "patched10a", "dev_assume_key": bool(DEV_ASSUME_KEY)}
 
 @app.get("/")
 def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched10"}
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched10a"}
 
-# REST endpoints unchanged
+# REST endpoints using resolve_agent_id
 @app.get("/resources/companies")
 def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
     agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
