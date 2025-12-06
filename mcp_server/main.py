@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import Response, RedirectResponse
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging, json
 from datetime import datetime
 import pandas as pd
@@ -80,6 +80,10 @@ def mcp_tools_list() -> Dict[str, Any]:
         ]
     }
 
+def mcp_resources_list() -> Dict[str, Any]:
+    # Minimal stub so Studio stops failing on resources discovery
+    return {"resources": []}
+
 async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
     if name == "getCompanies":
         limit = int(args.get("limit", DEFAULT_LIST_LIMIT)); offset = int(args.get("offset", 0))
@@ -112,51 +116,111 @@ async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
         return {"company_id": cid, "word_path": resp.get("word_path"), "pdf_path": resp.get("pdf_path"), "created_at": datetime.utcnow().isoformat() + "Z", "format": args.get("format", "pdf")}
     raise ValueError(f"Unknown tool: {name}")
 
-async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Response:
-    if not isinstance(payload, dict):
-        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object)")), media_type="application/json")
+async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Optional[Dict[str, Any]]:
+    # Return a single JSON-RPC response dict, or None for notifications
+    req_id = payload.get("id")
+    method = payload.get("method")
+    params = payload.get("params", {}) or {}
 
-    req_id = payload.get("id"); method = payload.get("method"); params = payload.get("params", {}) or {}
+    # Missing method → Invalid Request (-32600)
+    if not method:
+        return jsonrpc_error(req_id, -32600, "Invalid Request")
 
-    # Notifications MUST NOT send a response body per JSON-RPC 2.0
+    # Notifications MUST NOT send a response body
     if method == "notifications/initialized":
-        return Response(status_code=204)
+        return None
 
-    discovery_methods = {"initialize", "tools/list"}
+    # Discovery allowed without auth
+    discovery_methods = {"initialize", "tools/list", "resources/list"}
     if method in discovery_methods and allow_unauth_discovery:
         agent_id = x_agent_key or x_agent_key_alt or "agent-probe"
     else:
         try:
             agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
         except HTTPException as ex:
-            return Response(content=json.dumps(jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")), media_type="application/json")
+            return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
 
+    # Route
     if method == "initialize":
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {
-                "logging": {}, "completions": {}, "tools": {"listChanged": True}, "prompts": {"listChanged": True}, "resources": {"listChanged": True}
+                "logging": {}, "completions": {},
+                "tools": {"listChanged": True},
+                "prompts": {"listChanged": True},
+                "resources": {"listChanged": True}
             },
             "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
-        return Response(content=json.dumps(jsonrpc_result(req_id, result)), media_type="application/json")
+        return jsonrpc_result(req_id, result)
 
     if method == "tools/list":
-        return Response(content=json.dumps(jsonrpc_result(req_id, mcp_tools_list())), media_type="application/json")
+        return jsonrpc_result(req_id, mcp_tools_list())
+
+    if method == "resources/list":
+        return jsonrpc_result(req_id, mcp_resources_list())
 
     if method == "tools/call":
         name = params.get("name"); arguments = params.get("arguments") or {}
         try:
             content = await _dispatch_tool(name, arguments, agent_id)
-            return Response(content=json.dumps(jsonrpc_result(req_id, {"content": content})), media_type="application/json")
+            return jsonrpc_result(req_id, {"content": content})
         except ValueError as ve:
-            return Response(content=json.dumps(jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")), media_type="application/json")
+            return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
         except Exception:
-            return Response(content=json.dumps(jsonrpc_error(req_id, -32000, "Server error")), media_type="application/json")
+            return jsonrpc_error(req_id, -32000, "Server error")
 
-    return Response(content=json.dumps(jsonrpc_error(req_id, -32601, f"Method not found: {method}")), media_type="application/json")
+    return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
-# REST endpoints
+# --- 307 redirect from POST / to POST /mcp ---
+@app.post("/")
+async def root_redirect():
+    return RedirectResponse(url="/mcp", status_code=307)
+
+# MCP JSON-RPC endpoint with batch support
+@app.post("/mcp")
+async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+    try:
+        payload = await request.json()
+    except Exception:
+        # Parse error (-32700)
+        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
+
+    # If batch array arrives with malformed/empty items, be tolerant
+    if isinstance(payload, list):
+        # If all elements lack 'method', return an empty array (some clients probe this way)
+        if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
+            logger.info("Batch probe received without methods; returning empty array to satisfy client")
+            return Response(content="[]", media_type="application/json")
+        responses: List[Dict[str, Any]] = []
+        for el in payload:
+            if not isinstance(el, dict):
+                responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
+                continue
+            resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+            if resp is not None:  # Skip notifications
+                responses.append(resp)
+        return Response(content=json.dumps(responses), media_type="application/json")
+
+    # Single request object
+    if not isinstance(payload, dict):
+        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
+
+    resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+    if resp is None:  # notification → no body
+        return Response(status_code=204)
+    return Response(content=json.dumps(resp), media_type="application/json")
+
+# Health & probe
+@app.get("/health")
+def health():
+    return {"status": "ok", "variant": "patched7"}
+
+@app.get("/")
+def root_probe():
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched7"}
+
+# REST endpoints remain as before
 @app.get("/resources/companies")
 def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
@@ -191,28 +255,5 @@ def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, 
 def generate_report_entry(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
     agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     return generate_report_internal(company_id=company_id, x_agent_id=agent_id, companies=companies, financials=financials, exposure=exposure, covenants=covenants, ews=ews)
-
-@app.get("/health")
-def health():
-    return {"status": "ok", "variant": "patched6"}
-
-@app.get("/")
-def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched6"}
-
-# --- 307 redirect from POST / to POST /mcp (forces wizard to use canonical endpoint) ---
-@app.post("/")
-async def root_redirect():
-    return RedirectResponse(url="/mcp", status_code=307)
-
-@app.post("/mcp")
-async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
-    try:
-        payload = await request.json()
-    except Exception:
-        return jsonrpc_error(None, -32700, "Parse error")
-    if isinstance(payload, dict) and payload.get("method") == "notifications/initialized":
-        return Response(status_code=204)
-    return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
 
 app.include_router(tools_router)
