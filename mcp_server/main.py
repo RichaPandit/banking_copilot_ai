@@ -14,6 +14,7 @@ from mcp_server.tools import router as tools_router, generate_report_internal
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
 AGENT_HEADER: str = "x-agent-key"
+AGENT_HEADER_ALT: str = AGENT_HEADER.replace('-', '_')
 MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
@@ -27,7 +28,7 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         logger.info("REQ %s %s | %s=%s %s=%s", request.method, request.url.path,
                     AGENT_HEADER, request.headers.get(AGENT_HEADER),
-                    AGENT_HEADER.replace('-', '_'), request.headers.get(AGENT_HEADER.replace('-', '_')))
+                    AGENT_HEADER_ALT, request.headers.get(AGENT_HEADER_ALT))
         response = await call_next(request)
         logger.info("RESP %s %s | status=%s", request.method, request.url.path, response.status_code)
         return response
@@ -42,7 +43,6 @@ covenants  = load_csv("data/covenants.csv")
 ews        = load_csv("data/ews.csv")
 
 def jsonrpc_result(req_id: Any, result: Dict[str, Any]) -> Dict[str, Any]:
-    # IMPORTANT: preserve id type exactly as received (number vs string)
     return {"jsonrpc": JSONRPC_VERSION, "id": req_id, "result": result}
 
 def jsonrpc_error(req_id: Any, code: int, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -83,43 +83,6 @@ async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
         return {"company_id": cid, "word_path": resp.get("word_path"), "pdf_path": resp.get("pdf_path"), "created_at": datetime.utcnow().isoformat() + "Z", "format": args.get("format", "pdf")}
     raise ValueError(f"Unknown tool: {name}")
 
-# Helpers for MCP processing
-AGENT_HEADER_ALT = AGENT_HEADER.replace('-', '_')
-
-def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
-    agent_id = primary or alternate
-    if not agent_id:
-        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
-    validate_agent_id(agent_id)
-    return agent_id
-
-def mcp_tools_list() -> Dict[str, Any]:
-    return {
-        "tools": [
-            {"name": "getCompanies", "description": "Return borrowers: company_id, company_name, sector.",
-             "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT}, "offset": {"type": "integer", "minimum": 0}}, "additionalProperties": False},
-             "outputSchema": {"type": "array", "items": {"type": "object", "properties": {"company_id": {"type": "string"}, "company_name": {"type": "string"}, "sector": {"type": "string"}}, "required": ["company_id", "company_name"]}}},
-            {"name": "getFinancials", "description": "Return time series for a company.",
-             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-             "outputSchema": {"type": "object"}},
-            {"name": "getExposure",   "description": "Return sanctioned limit, utilized amount, overdue, collateral, DPD.",
-             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-             "outputSchema": {"type": "object"}},
-            {"name": "getCovenants",  "description": "Return covenant thresholds and last actuals.",
-             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-             "outputSchema": {"type": "object"}},
-            {"name": "getEws",        "description": "Return early warning signal events.",
-             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-             "outputSchema": {"type": "object"}},
-            {"name": "generateReport", "description": "Create a Word/PDF risk review report; return file paths + metadata.",
-             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}, "format": {"type": "string", "enum": ["word", "pdf"]}}, "required": ["company_id"], "additionalProperties": False},
-             "outputSchema": {"type": "object", "properties": {"word_path": {"type": "string"}, "pdf_path": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}}}
-        ]
-    }
-
-def mcp_resources_list() -> Dict[str, Any]:
-    return {"resources": []}
-
 async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Optional[Dict[str, Any]]:
     req_id = payload.get("id")
     method = payload.get("method")
@@ -130,8 +93,9 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
     if not method:
         return jsonrpc_error(req_id, -32600, "Invalid Request")
 
+    # notifications MUST NOT have an id; return HTTP 200 with empty body (instead of 204) for client compatibility
     if method == "notifications/initialized":
-        return None
+        return None  # we'll map to 200 downstream
 
     discovery_methods = {"initialize", "tools/list", "resources/list"}
     if method in discovery_methods and allow_unauth_discovery:
@@ -147,7 +111,6 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
             return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
 
     if method == "initialize":
-        # Echo protocolVersion if provided; else use default
         pv = params.get("protocolVersion") or PROTOCOL_VERSION
         result = {
             "protocolVersion": pv,
@@ -157,31 +120,21 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                 "prompts": {"listChanged": True},
                 "resources": {"listChanged": True}
             },
-            "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
+            "serverInfo": {"name": "BankingMCP", "version": "1.0.0", "description": "Credit Risk MCP"}
         }
-        resp = jsonrpc_result(req_id, result)
-        logger.info("MCP RESP initialize: %s", result)
-        return resp
+        return jsonrpc_result(req_id, result)
 
     if method == "tools/list":
-        tools = mcp_tools_list()
-        resp = jsonrpc_result(req_id, tools)
-        logger.info("MCP RESP tools/list: %s", tools)
-        return resp
+        return jsonrpc_result(req_id, mcp_tools_list())
 
     if method == "resources/list":
-        resources = mcp_resources_list()
-        resp = jsonrpc_result(req_id, resources)
-        logger.info("MCP RESP resources/list: %s", resources)
-        return resp
+        return jsonrpc_result(req_id, {"resources": []})
 
     if method == "tools/call":
         name = params.get("name"); arguments = params.get("arguments") or {}
         try:
             content = await _dispatch_tool(name, arguments, agent_id)
-            resp = jsonrpc_result(req_id, {"content": content})
-            logger.info("MCP RESP tools/call %s: ok", name)
-            return resp
+            return jsonrpc_result(req_id, {"content": content})
         except ValueError as ve:
             return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
         except Exception:
@@ -189,7 +142,6 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
-# Root and /mcp accept JSON-RPC and batch
 async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_key_alt: Optional[str]) -> Response:
     try:
         payload = await request.json()
@@ -217,7 +169,8 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
 
     resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
     if resp is None:
-        return Response(status_code=204)
+        # notification → return 200 with no body (compat mode)
+        return Response(status_code=200)
     return Response(content=json.dumps(resp), media_type="application/json")
 
 @app.post("/")
@@ -230,40 +183,40 @@ async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(Non
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched9", "dev_assume_key": bool(DEV_ASSUME_KEY)}
+    return {"status": "ok", "variant": "patched10", "dev_assume_key": bool(DEV_ASSUME_KEY)}
 
 @app.get("/")
 def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched9"}
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched10"}
 
-# REST endpoints (unchanged)
+# REST endpoints unchanged
 @app.get("/resources/companies")
 def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
-    resolve_agent_id(x_agent_key, x_agent_key_alt)
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     limit = min(max(limit, 1), MAX_LIST_LIMIT)
     return companies.iloc[offset: offset + limit].to_dict(orient="records")
 
 @app.get("/resources/financials/{company_id}")
 def get_financials_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    resolve_agent_id(x_agent_key, x_agent_key_alt)
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = financials[financials["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/exposure/{company_id}")
 def get_exposure_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    resolve_agent_id(x_agent_key, x_agent_key_alt)
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = exposure[exposure["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/covenants/{company_id}")
 def get_covenants_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    resolve_agent_id(x_agent_key, x_agent_key_alt)
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = covenants[covenants["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/ews/{company_id}")
 def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    resolve_agent_id(x_agent_key, x_agent_key_alt)
+    agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
 
