@@ -66,7 +66,6 @@ def mcp_tools_list() -> Dict[str, Any]:
         "tools": [
             {
                 "name": "getCompanies",
-                "type": "function",
                 "description": "Return borrowers: company_id, company_name, sector.",
                 "inputSchema": {
                     "type": "object",
@@ -91,7 +90,6 @@ def mcp_tools_list() -> Dict[str, Any]:
             },
             {
                 "name": "getFinancials",
-                "type": "function",
                 "description": "Return time series for a company.",
                 "inputSchema": {
                     "type": "object",
@@ -103,7 +101,6 @@ def mcp_tools_list() -> Dict[str, Any]:
             },
             {
                 "name": "getExposure",
-                "type": "function",
                 "description": "Return sanctioned limit, utilized amount, overdue, collateral, DPD.",
                 "inputSchema": {
                     "type": "object",
@@ -115,7 +112,6 @@ def mcp_tools_list() -> Dict[str, Any]:
             },
             {
                 "name": "getCovenants",
-                "type": "function",
                 "description": "Return covenant thresholds and last actuals.",
                 "inputSchema": {
                     "type": "object",
@@ -127,7 +123,6 @@ def mcp_tools_list() -> Dict[str, Any]:
             },
             {
                 "name": "getEws",
-                "type": "function",
                 "description": "Return early warning signal events.",
                 "inputSchema": {
                     "type": "object",
@@ -139,7 +134,6 @@ def mcp_tools_list() -> Dict[str, Any]:
             },
             {
                 "name": "generateReport",
-                "type": "function",
                 "description": "Create a Word/PDF risk review report; return file paths + metadata.",
                 "inputSchema": {
                     "type": "object",
@@ -245,22 +239,36 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
         result = {
             "protocolVersion": pv,
             "capabilities": {
-                "tools": {"listChanged": True},
-                "resources": {"listChanged": True}
+                "tools": {
+                    "available": True,
+                    "listChanged": True
+                    },
+                "resources": {
+                    "available": True,
+                    "listChanged": True
+                    }
             },
-            "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
+            "serverInfo": {
+                "name": "BankingMCP",
+                "version": "1.0.0"
+                }
         }
         return jsonrpc_result(req_id, result)
 
     if method == "tools/list":
-        return jsonrpc_result(req_id, mcp_tools_list())
+        result = mcp_tools_list()
+        return jsonrpc_result(req_id, result)
 
     if method == "resources/list":
-        return jsonrpc_result(req_id, {"resources": []})
+        result = {
+            "resources": []
+        }
+        return jsonrpc_result(req_id, result)
 
     if method == "tools/call":
         name = params.get("name")
-        arguments = params.get("arguments") or {}
+        arguments = params.get("arguments", {})
+        
         try:
             content = await _dispatch_tool(name, arguments, agent_id)
             return jsonrpc_result(req_id, {"toolResult": content})
