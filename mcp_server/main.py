@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from typing import Optional, Dict, Any
 import logging, json
 from datetime import datetime
@@ -59,42 +59,24 @@ def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
 def mcp_tools_list() -> Dict[str, Any]:
     return {
         "tools": [
-            {
-                "name": "getCompanies",
-                "description": "Return borrowers: company_id, company_name, sector.",
-                "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT}, "offset": {"type": "integer", "minimum": 0}}, "additionalProperties": False},
-                "outputSchema": {"type": "array", "items": {"type": "object", "properties": {"company_id": {"type": "string"}, "company_name": {"type": "string"}, "sector": {"type": "string"}}, "required": ["company_id", "company_name"]}}
-            },
-            {
-                "name": "getFinancials",
-                "description": "Return income statement & balance sheet time series for a company.",
-                "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-                "outputSchema": {"type": "object"}
-            },
-            {
-                "name": "getExposure",
-                "description": "Return sanctioned limit, utilized amount, overdue, collateral, DPD.",
-                "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-                "outputSchema": {"type": "object"}
-            },
-            {
-                "name": "getCovenants",
-                "description": "Return covenant thresholds and last actuals.",
-                "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-                "outputSchema": {"type": "object"}
-            },
-            {
-                "name": "getEws",
-                "description": "Return early warning signal events.",
-                "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
-                "outputSchema": {"type": "object"}
-            },
-            {
-                "name": "generateReport",
-                "description": "Create a Word/PDF risk review report; return file paths + metadata.",
-                "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}, "format": {"type": "string", "enum": ["word", "pdf"]}}, "required": ["company_id"], "additionalProperties": False},
-                "outputSchema": {"type": "object", "properties": {"word_path": {"type": "string"}, "pdf_path": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}}
-            }
+            {"name": "getCompanies", "description": "Return borrowers: company_id, company_name, sector.",
+             "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIST_LIMIT}, "offset": {"type": "integer", "minimum": 0}}, "additionalProperties": False},
+             "outputSchema": {"type": "array", "items": {"type": "object", "properties": {"company_id": {"type": "string"}, "company_name": {"type": "string"}, "sector": {"type": "string"}}, "required": ["company_id", "company_name"]}}},
+            {"name": "getFinancials", "description": "Return time series for a company.",
+             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
+             "outputSchema": {"type": "object"}},
+            {"name": "getExposure",   "description": "Return sanctioned limit, utilized amount, overdue, collateral, DPD.",
+             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
+             "outputSchema": {"type": "object"}},
+            {"name": "getCovenants",  "description": "Return covenant thresholds and last actuals.",
+             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
+             "outputSchema": {"type": "object"}},
+            {"name": "getEws",        "description": "Return early warning signal events.",
+             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}}, "required": ["company_id"], "additionalProperties": False},
+             "outputSchema": {"type": "object"}},
+            {"name": "generateReport", "description": "Create a Word/PDF risk review report; return file paths + metadata.",
+             "inputSchema": {"type": "object", "properties": {"company_id": {"type": "string"}, "format": {"type": "string", "enum": ["word", "pdf"]}}, "required": ["company_id"], "additionalProperties": False},
+             "outputSchema": {"type": "object", "properties": {"word_path": {"type": "string"}, "pdf_path": {"type": "string"}, "created_at": {"type": "string", "format": "date-time"}}}}
         ]
     }
 
@@ -153,21 +135,14 @@ async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_age
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {
-                "logging": {},
-                "completions": {},
-                "tools": {"listChanged": True},
-                "prompts": {"listChanged": True},
-                "resources": {"listChanged": True}
+                "logging": {}, "completions": {}, "tools": {"listChanged": True}, "prompts": {"listChanged": True}, "resources": {"listChanged": True}
             },
             "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
-        logger.info("INIT RESULT: %s", result)
         return Response(content=json.dumps(jsonrpc_result(req_id, result)), media_type="application/json")
 
     if method == "tools/list":
-        tools = mcp_tools_list()
-        logger.info("TOOLS/LIST RESULT: %s", tools)
-        return Response(content=json.dumps(jsonrpc_result(req_id, tools)), media_type="application/json")
+        return Response(content=json.dumps(jsonrpc_result(req_id, mcp_tools_list())), media_type="application/json")
 
     if method == "tools/call":
         name = params.get("name"); arguments = params.get("arguments") or {}
@@ -181,7 +156,7 @@ async def process_mcp(payload: Dict[str, Any], x_agent_key: Optional[str], x_age
 
     return Response(content=json.dumps(jsonrpc_error(req_id, -32601, f"Method not found: {method}")), media_type="application/json")
 
-# REST endpoints (unchanged)
+# REST endpoints
 @app.get("/resources/companies")
 def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
@@ -219,12 +194,16 @@ def generate_report_entry(company_id: str, x_agent_key: Optional[str] = Header(N
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched5"}
+    return {"status": "ok", "variant": "patched6"}
 
-@app.get("/debug/headers")
-async def debug_headers(request: Request):
-    h = dict(request.headers)
-    return {AGENT_HEADER: h.get(AGENT_HEADER), AGENT_HEADER.replace('-', '_'): h.get(AGENT_HEADER.replace('-', '_')), "user-agent": h.get("user-agent"), "content-type": h.get("content-type")}
+@app.get("/")
+def root_probe():
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched6"}
+
+# --- 307 redirect from POST / to POST /mcp (forces wizard to use canonical endpoint) ---
+@app.post("/")
+async def root_redirect():
+    return RedirectResponse(url="/mcp", status_code=307)
 
 @app.post("/mcp")
 async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
@@ -232,23 +211,6 @@ async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(Non
         payload = await request.json()
     except Exception:
         return jsonrpc_error(None, -32700, "Parse error")
-    if isinstance(payload, dict) and payload.get("method") == "notifications/initialized":
-        return Response(status_code=204)
-    return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-
-@app.get("/")
-def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched5"}
-
-@app.post("/")
-async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
-    raw = await request.body()
-    try:
-        payload = await request.json()
-    except Exception:
-        logger.info("ROOT POST non-JSON body: %s", raw[:200])
-        return {"message": "Root accepts GET 200; use POST /mcp (JSON-RPC)."}
-    logger.info("ROOT POST forwarding payload: %s", str(payload)[:500])
     if isinstance(payload, dict) and payload.get("method") == "notifications/initialized":
         return Response(status_code=204)
     return await process_mcp(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
