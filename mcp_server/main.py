@@ -16,7 +16,7 @@ PROTOCOL_VERSION: str = "2024-11-05"
 AGENT_HEADER: str = "x-agent-key"
 MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
-DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")  # e.g., "agent-007"
+DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
 
 app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
 
@@ -41,14 +41,50 @@ exposure   = load_csv("data/exposure.csv")
 covenants  = load_csv("data/covenants.csv")
 ews        = load_csv("data/ews.csv")
 
-def jsonrpc_result(req_id: Optional[str], result: Dict[str, Any]) -> Dict[str, Any]:
-    return {"jsonrpc": JSONRPC_VERSION, "id": (str(req_id) if req_id is not None else None), "result": result}
+def jsonrpc_result(req_id: Any, result: Dict[str, Any]) -> Dict[str, Any]:
+    # IMPORTANT: preserve id type exactly as received (number vs string)
+    return {"jsonrpc": JSONRPC_VERSION, "id": req_id, "result": result}
 
-def jsonrpc_error(req_id: Optional[str], code: int, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def jsonrpc_error(req_id: Any, code: int, message: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     err = {"code": code, "message": message}
     if data is not None:
         err["data"] = data
-    return {"jsonrpc": JSONRPC_VERSION, "id": (str(req_id) if req_id is not None else None), "error": err}
+    return {"jsonrpc": JSONRPC_VERSION, "id": req_id, "error": err}
+
+async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
+    if name == "getCompanies":
+        limit = int(args.get("limit", DEFAULT_LIST_LIMIT)); offset = int(args.get("offset", 0))
+        limit = min(max(limit, 1), MAX_LIST_LIMIT)
+        return companies.iloc[offset: offset + limit].to_dict(orient="records")
+    if name == "getFinancials":
+        cid = args.get("company_id");
+        if not cid: raise ValueError("Missing required argument 'company_id'")
+        df = financials[financials["company_id"] == cid]
+        return {"company_id": cid, "financials": df.to_dict(orient="records")}
+    if name == "getExposure":
+        cid = args.get("company_id");
+        if not cid: raise ValueError("Missing required argument 'company_id'")
+        df = exposure[exposure["company_id"] == cid]
+        return {"company_id": cid, "exposure": df.to_dict(orient="records")}
+    if name == "getCovenants":
+        cid = args.get("company_id");
+        if not cid: raise ValueError("Missing required argument 'company_id'")
+        df = covenants[covenants["company_id"] == cid]
+        return {"company_id": cid, "covenants": df.to_dict(orient="records")}
+    if name == "getEws":
+        cid = args.get("company_id");
+        if not cid: raise ValueError("Missing required argument 'company_id'")
+        df = ews[ews["company_id"] == cid]
+        return {"company_id": cid, "ews": df.to_dict(orient="records")}
+    if name == "generateReport":
+        cid = args.get("company_id");
+        if not cid: raise ValueError("Missing required argument 'company_id'")
+        resp = generate_report_internal(company_id=cid, x_agent_id=agent_id, companies=companies, financials=financials, exposure=exposure, covenants=covenants, ews=ews)
+        return {"company_id": cid, "word_path": resp.get("word_path"), "pdf_path": resp.get("pdf_path"), "created_at": datetime.utcnow().isoformat() + "Z", "format": args.get("format", "pdf")}
+    raise ValueError(f"Unknown tool: {name}")
+
+# Helpers for MCP processing
+AGENT_HEADER_ALT = AGENT_HEADER.replace('-', '_')
 
 def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
     agent_id = primary or alternate
@@ -84,42 +120,12 @@ def mcp_tools_list() -> Dict[str, Any]:
 def mcp_resources_list() -> Dict[str, Any]:
     return {"resources": []}
 
-async def _dispatch_tool(name: str, args: Dict[str, Any], agent_id: str) -> Any:
-    if name == "getCompanies":
-        limit = int(args.get("limit", DEFAULT_LIST_LIMIT)); offset = int(args.get("offset", 0))
-        limit = min(max(limit, 1), MAX_LIST_LIMIT)
-        return companies.iloc[offset: offset + limit].to_dict(orient="records")
-    if name == "getFinancials":
-        cid = args.get("company_id");
-        if not cid: raise ValueError("Missing required argument 'company_id'")
-        df = financials[financials["company_id"] == cid]
-        return {"company_id": cid, "financials": df.to_dict(orient="records")}
-    if name == "getExposure":
-        cid = args.get("company_id");
-        if not cid: raise ValueError("Missing required argument 'company_id'")
-        df = exposure[exposure["company_id"] == cid]
-        return {"company_id": cid, "exposure": df.to_dict(orient="records")}
-    if name == "getCovenants":
-        cid = args.get("company_id");
-        if not cid: raise ValueError("Missing required argument 'company_id'")
-        df = covenants[covenants["company_id"] == cid]
-        return {"company_id": cid, "covenants": df.to_dict(orient="records")}
-    if name == "getEws":
-        cid = args.get("company_id");
-        if not cid: raise ValueError("Missing required argument 'company_id'")
-        df = ews[ews["company_id"] == cid]
-        return {"company_id": cid, "ews": df.to_dict(orient="records")}
-    if name == "generateReport":
-        cid = args.get("company_id");
-        if not cid: raise ValueError("Missing required argument 'company_id'")
-        resp = generate_report_internal(company_id=cid, x_agent_id=agent_id, companies=companies, financials=financials, exposure=exposure, covenants=covenants, ews=ews)
-        return {"company_id": cid, "word_path": resp.get("word_path"), "pdf_path": resp.get("pdf_path"), "created_at": datetime.utcnow().isoformat() + "Z", "format": args.get("format", "pdf")}
-    raise ValueError(f"Unknown tool: {name}")
-
 async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str], x_agent_key_alt: Optional[str], allow_unauth_discovery: bool = True) -> Optional[Dict[str, Any]]:
     req_id = payload.get("id")
     method = payload.get("method")
     params = payload.get("params", {}) or {}
+
+    logger.info("MCP REQ: id=%s method=%s", req_id, method)
 
     if not method:
         return jsonrpc_error(req_id, -32600, "Invalid Request")
@@ -131,8 +137,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
     if method in discovery_methods and allow_unauth_discovery:
         agent_id = x_agent_key or x_agent_key_alt or "agent-probe"
     else:
-        # Dev-only fallback: if header missing and env var set, use it
-        fallback = DEV_ASSUME_KEY if DEV_ASSUME_KEY else None
+        fallback = os.getenv("MCP_DEV_ASSUME_KEY")
         try:
             agent_id = (x_agent_key or x_agent_key_alt or fallback)
             if not agent_id:
@@ -142,8 +147,10 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
             return jsonrpc_error(req_id, -32001, f"Unauthorized: {ex.detail}")
 
     if method == "initialize":
+        # Echo protocolVersion if provided; else use default
+        pv = params.get("protocolVersion") or PROTOCOL_VERSION
         result = {
-            "protocolVersion": PROTOCOL_VERSION,
+            "protocolVersion": pv,
             "capabilities": {
                 "logging": {}, "completions": {},
                 "tools": {"listChanged": True},
@@ -152,19 +159,29 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
             },
             "serverInfo": {"name": "BankingMCP", "version": "1.0.0"}
         }
-        return jsonrpc_result(req_id, result)
+        resp = jsonrpc_result(req_id, result)
+        logger.info("MCP RESP initialize: %s", result)
+        return resp
 
     if method == "tools/list":
-        return jsonrpc_result(req_id, mcp_tools_list())
+        tools = mcp_tools_list()
+        resp = jsonrpc_result(req_id, tools)
+        logger.info("MCP RESP tools/list: %s", tools)
+        return resp
 
     if method == "resources/list":
-        return jsonrpc_result(req_id, mcp_resources_list())
+        resources = mcp_resources_list()
+        resp = jsonrpc_result(req_id, resources)
+        logger.info("MCP RESP resources/list: %s", resources)
+        return resp
 
     if method == "tools/call":
         name = params.get("name"); arguments = params.get("arguments") or {}
         try:
             content = await _dispatch_tool(name, arguments, agent_id)
-            return jsonrpc_result(req_id, {"content": content})
+            resp = jsonrpc_result(req_id, {"content": content})
+            logger.info("MCP RESP tools/call %s: ok", name)
+            return resp
         except ValueError as ve:
             return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
         except Exception:
@@ -172,108 +189,86 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     return jsonrpc_error(req_id, -32601, f"Method not found: {method}")
 
-# --- Root: process JSON-RPC directly (no redirect) ---
+# Root and /mcp accept JSON-RPC and batch
+async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_key_alt: Optional[str]) -> Response:
+    try:
+        payload = await request.json()
+    except Exception:
+        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
+
+    logger.info("RAW BODY: %s", str(payload)[:500])
+
+    if isinstance(payload, list):
+        if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
+            logger.info("Batch probe received without methods; returning empty array to satisfy client")
+            return Response(content="[]", media_type="application/json")
+        responses: List[Dict[str, Any]] = []
+        for el in payload:
+            if not isinstance(el, dict):
+                responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
+                continue
+            resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+            if resp is not None:
+                responses.append(resp)
+        return Response(content=json.dumps(responses), media_type="application/json")
+
+    if not isinstance(payload, dict):
+        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
+
+    resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
+    if resp is None:
+        return Response(status_code=204)
+    return Response(content=json.dumps(resp), media_type="application/json")
+
 @app.post("/")
-async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
-    try:
-        payload = await request.json()
-    except Exception:
-        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
+async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
+    return await _handle_jsonrpc(request, x_agent_key, x_agent_key_alt)
 
-    # Batch handling for root as well
-    if isinstance(payload, list):
-        if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
-            logger.info("Batch probe received without methods; returning empty array to satisfy client")
-            return Response(content="[]", media_type="application/json")
-        responses: List[Dict[str, Any]] = []
-        for el in payload:
-            if not isinstance(el, dict):
-                responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
-                continue
-            resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-            if resp is not None:
-                responses.append(resp)
-        return Response(content=json.dumps(responses), media_type="application/json")
-
-    if not isinstance(payload, dict):
-        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
-
-    resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-    if resp is None:
-        return Response(status_code=204)
-    return Response(content=json.dumps(resp), media_type="application/json")
-
-# MCP endpoint keeps same behavior
 @app.post("/mcp")
-async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
-    try:
-        payload = await request.json()
-    except Exception:
-        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
-
-    if isinstance(payload, list):
-        if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
-            logger.info("Batch probe received without methods; returning empty array to satisfy client")
-            return Response(content="[]", media_type="application/json")
-        responses: List[Dict[str, Any]] = []
-        for el in payload:
-            if not isinstance(el, dict):
-                responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
-                continue
-            resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-            if resp is not None:
-                responses.append(resp)
-        return Response(content=json.dumps(responses), media_type="application/json")
-
-    if not isinstance(payload, dict):
-        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
-
-    resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
-    if resp is None:
-        return Response(status_code=204)
-    return Response(content=json.dumps(resp), media_type="application/json")
+async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
+    return await _handle_jsonrpc(request, x_agent_key, x_agent_key_alt)
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched8", "dev_assume_key": bool(DEV_ASSUME_KEY)}
+    return {"status": "ok", "variant": "patched9", "dev_assume_key": bool(DEV_ASSUME_KEY)}
 
 @app.get("/")
 def root_probe():
-    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched8"}
+    return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp", "variant": "patched9"}
 
-# REST endpoints
+# REST endpoints (unchanged)
 @app.get("/resources/companies")
-def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_')), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
+def get_companies_endpoint(x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT), limit: int = DEFAULT_LIST_LIMIT, offset: int = 0):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
     limit = min(max(limit, 1), MAX_LIST_LIMIT)
     return companies.iloc[offset: offset + limit].to_dict(orient="records")
 
 @app.get("/resources/financials/{company_id}")
-def get_financials_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+def get_financials_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = financials[financials["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/exposure/{company_id}")
-def get_exposure_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+def get_exposure_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = exposure[exposure["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/covenants/{company_id}")
-def get_covenants_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+def get_covenants_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = covenants[covenants["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.get("/resources/ews/{company_id}")
-def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     resolve_agent_id(x_agent_key, x_agent_key_alt)
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
 
 @app.post("/tools/generate-report/{company_id}")
-def generate_report_entry(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER.replace('-', '_'))):
+def generate_report_entry(company_id: str, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     agent_id = resolve_agent_id(x_agent_key, x_agent_key_alt)
     return generate_report_internal(company_id=company_id, x_agent_id=agent_id, companies=companies, financials=financials, exposure=exposure, covenants=covenants, ews=ews)
 
