@@ -217,8 +217,9 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     if not method:
         return jsonrpc_error(req_id, -32600, "Invalid Request")
-
-    if method == "notifications/initialized":
+    
+    if method.startswith("notifications/"):
+        logger.info("Ignoring notification: %s", method)
         return None
 
     discovery_methods = {"initialize", "tools/list", "resources/list"}
@@ -319,7 +320,7 @@ async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(Non
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "variant": "patched10a", "dev_assume_key": bool(DEV_ASSUME_KEY)}
+    return {"status": "ok", "variant": "mcp-final", "dev_assume_key": bool(DEV_ASSUME_KEY)}
 
 @app.get("/")
 def root_probe():
