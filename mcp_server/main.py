@@ -319,7 +319,7 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
 
     resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
     if resp is None:
-        return Response(status_code=200)
+        return Response(status_code=204)
     return Response(content=json.dumps(resp), media_type="application/json")
 
 @app.post("/")
