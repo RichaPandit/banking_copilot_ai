@@ -240,14 +240,8 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
         result = {
             "protocolVersion": pv,
             "capabilities": {
-                "tools": {
-                    "available": True,
-                    "listChanged": True
-                    },
-                "resources": {
-                    "available": True,
-                    "listChanged": True
-                    }
+                "tools": {},
+                "resources": {}
             },
             "serverInfo": {
                 "name": "BankingMCP",
