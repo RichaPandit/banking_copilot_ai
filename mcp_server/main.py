@@ -262,7 +262,48 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     if method == "resources/list":
         result = {
-            "resources": []
+            "resources": [
+                {
+                    "name": "companies",
+                    "displayName": "Companies",
+                    "description": "List of corporate borrowers",
+                    "uri": "/resources/companies",
+                    "method": "GET",
+                    "responseFormat": "json"
+                },
+                {
+                    "name": "financials",
+                    "displayName": "Financials",
+                    "description": "Income statement and balance sheet",
+                    "uri": "resources/financials/{company_id}",
+                    "method": "GET",
+                    "responseFormat": "json"
+                },
+                {
+                    "name": "exposure",
+                    "displayName": "Exposure",
+                    "description": "Sanctioned limit, utilized limit, overdue, collateral, DPD",
+                    "uri": "resources/exposure/{company_id}",
+                    "method": "GET",
+                    "responseFormat": "json"
+                },
+                {
+                    "name": "covenants",
+                    "displayName": "Covenants",
+                    "description": "Covenant thresholds and last actuals",
+                    "uri": "resources/covenants/{company_id}",
+                    "method": "GET",
+                    "responseFormat": "json"
+                },
+                {
+                    "name": "ews",
+                    "displayName": "EarlyWarningSignals",
+                    "description": "Early warning signal events",
+                    "uri": "resources/ews/{company_id}",
+                    "method": "GET",
+                    "responseFormat": "json"
+                }
+            ]
         }
         return jsonrpc_result(req_id, result)
 
