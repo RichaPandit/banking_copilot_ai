@@ -237,36 +237,23 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
 
     if method == "initialize":
         pv = params.get("protocolVersion") or PROTOCOL_VERSION
-        logging.info("DEBUG INITIALIZE RESPONSE: %s", json.dumps({
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": pv,
-                "capabilities": {
-                    "tools": { "listChanged": True },
-                    "resources": { "listChanged": True }
+        result = {
+            "protocolVersion": pv,
+            "capabilities": {
+                "tools": {
+                    "listChanged": True
+                },
+                "resources": {
+                    "listChanged": True
+                }
             },
             "serverInfo": {
                 "name": "BankingMCP",
                 "version": "1.0.0"
-                }
             }
-        }, indent=2))
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "protocolVersion": pv,
-                "capabilities": {
-                    "tools": { "listChanged": True },
-                    "resources": { "listChanged": True }
-            },
-            "serverInfo": {
-                "name": "BankingMCP",
-                "version": "1.0.0"
-                }
         }
-        }
+        logger.info("DEBUG INITIALIZE RESPONSE: %s", json.dumps(result, indent=2))
+        return jsonrpc_result(req_id, result)
 
     if method == "tools/list":
         result = mcp_tools_list()
