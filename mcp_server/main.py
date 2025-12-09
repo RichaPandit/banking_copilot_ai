@@ -11,7 +11,8 @@ from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
-from mcp.server.fastmcp import FastMCP
+from mcp.server import Server
+from mcp.server.fastmcp import MCPServer
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -58,8 +59,9 @@ def root_probe():
 # Sub-app serves at its own root ('/'); we mount it at '/mcp' on FastAPI.
 # Stateless mode avoids session-manager task group initialization.
 
-mcp = FastMCP("BankingMCP", json_response=True, stateless_http=True, streamable_http_path="/")
-app.mount("/mcp/", mcp.streamable_http_app())
+mcp_server = Server("BankingMCP")
+mcp_adapter = MCPServer(mcp_server)
+app.mount("/mcp/", mcp_adapter)
 
 # TEMP: route dump to verify /mcp appears in logs
 for r in app.routes:
@@ -73,10 +75,9 @@ for r in app.routes:
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
 
-
-@mcp.tool()
+@mcp_server.tool()
 def ping() -> dict:
-    return {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"}
+    return {"ok": True, "ts": datetime.now().isoformat() + "Z"}
 
 # 3) Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
 import mcp as mcp_pkg
