@@ -59,7 +59,7 @@ def root_probe():
 # The MCP sub-app serves at its own root ('/'), and we mount it at '/mcp' in our main FastAPI app.
 # This is the supported integration with Streamable HTTP (works with Copilot Studio MCP Preview).
 
-mcp = FastMCP("BankingMCP", json_response=True, streamable_http_path="/")
+mcp = FastMCP("BankingMCP", json_response=True, stateless_http=True,streamable_http_path="/")
 
 # Register MCP resources (templates) – URIs use a custom scheme 'risk://'
 @mcp.resource("risk://companies")
