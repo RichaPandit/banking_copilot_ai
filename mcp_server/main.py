@@ -273,7 +273,8 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "description": "List of corporate borrowers",
                     "uri": f"{base}/resources/companies",
                     "method": "GET",
-                    "responseFormat": "json"
+                    "responseFormat": "json",
+                    "mimeType":"application/json"
                 },
                 {
                     "name": "financials",
@@ -281,7 +282,8 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "description": "Income statement and balance sheet",
                     "uri": f"{base}/resources/financials/{{company_id}}",
                     "method": "GET",
-                    "responseFormat": "json"
+                    "responseFormat": "json",
+                    "mimeType":"application/json"
                 },
                 {
                     "name": "exposure",
@@ -409,12 +411,7 @@ async def root_forward(request: Request, x_agent_key: Optional[str] = Header(Non
 
 @app.post("/mcp")
 async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    transport = StreamableHTTPServerTransport(enable_json_response=True)
-    response = Response(media_type="application/json")
-    await mcp.connect(transport)
-    body = await request.json()
-    await transport.handle_request(request, response, body)
-    return response
+    return await mcp.streamable_http_app()(request.scope, request.receive, request._send)
     #return await _handle_jsonrpc(request, x_agent_key, x_agent_key_alt)
 
 @app.get("/health")
