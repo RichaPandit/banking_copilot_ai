@@ -33,15 +33,6 @@ logger = logging.getLogger("banking-mcp")
 # CORS + Request logging
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-class RequestLogMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        logger.info("REQ %s %s | %s=%s %s=%s", request.method, request.url.path, AGENT_HEADER, request.headers.get(AGENT_HEADER), AGENT_HEADER_ALT, request.headers.get(AGENT_HEADER_ALT))
-        resp = await call_next(request)
-        logger.info("RESP %s %s | status=%s", request.method, request.url.path, resp.status_code)
-        return resp
-
-app.add_middleware(RequestLogMiddleware)
-
 # -----------------
 # Data bootstrap
 # -----------------
