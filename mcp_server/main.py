@@ -59,7 +59,7 @@ def root_probe():
 # Stateless mode avoids session-manager task group initialization.
 
 mcp = FastMCP("BankingMCP", json_response=True, stateless_http=True, streamable_http_path="/")
-app.mount("/mcp", mcp.streamable_http_app())
+app.mount("/mcp/", mcp.streamable_http_app())
 
 # TEMP: route dump to verify /mcp appears in logs
 for r in app.routes:
