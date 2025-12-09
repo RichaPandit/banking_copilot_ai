@@ -14,7 +14,6 @@ from mcp_server.tools import router as tools_router, generate_report_internal
 from mcp.server import Server
 from mcp.server.fastmcp import FastMCP
 
-print(mcp.__version__)
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
