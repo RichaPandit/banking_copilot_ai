@@ -21,7 +21,7 @@ MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
 
-app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
+app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0", debug=True)
 manifest_path = os.path.join("copilot_integration","copilot_manifest.json")
 
 # Logging
@@ -72,6 +72,19 @@ for r in app.routes:
 @app.post("/")
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
+
+
+@mcp.tool()
+def ping() -> dict:
+    return {"ok": True, "ts": datetime.utcnow().isoformat() + "Z"}
+
+# 3) Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
+import mcp as mcp_pkg
+
+@app.get("/diag/mcp")
+def diag_mcp():
+    return {"mcp_version": getattr(mcp_pkg, "__version__", "unknown")}
+
 
 # -----------------
 # REST fallback endpoints (unchanged behavior)
