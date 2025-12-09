@@ -9,6 +9,8 @@ import pandas as pd
 
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
+from mcp.server.fastmcp import FastMCP
+from mcp.server.http_transport import StreamableHTTPServerTransport
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -18,6 +20,7 @@ MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
 
+mcp = FastMCP("BankingMCP")
 app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
 manifest_path = os.path.join("copilot_integration","copilot_manifest.json")
 
@@ -349,10 +352,14 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments", {})
-        
         try:
-            content = await _dispatch_tool(name, arguments, agent_id)
-            return jsonrpc_result(req_id, {"toolResult": content})
+            content_obj = await _dispatch_tool(name, arguments, agent_id)
+            return jsonrpc_result(req_id, {
+                "content": [
+                    { "type": "json": content_obj }
+                    ],
+                    "isError": False
+                })
         except ValueError as ve:
             return jsonrpc_error(req_id, -32602, f"Invalid params: {ve}")
         except Exception:
@@ -402,7 +409,13 @@ async def root_forward(request: Request, x_agent_key: Optional[str] = Header(Non
 
 @app.post("/mcp")
 async def mcp_endpoint(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
-    return await _handle_jsonrpc(request, x_agent_key, x_agent_key_alt)
+    transport = StreamableHTTPServerTransport(enable_json_response=True)
+    response = Response(media_type="application/json")
+    await mcp.connect(transport)
+    body = await request.json()
+    await transport.handle_request(request, response, body)
+    return response
+    #return await _handle_jsonrpc(request, x_agent_key, x_agent_key_alt)
 
 @app.get("/health")
 def health():

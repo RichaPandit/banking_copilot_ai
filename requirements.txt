@@ -1,3 +1,4 @@
+modelcontextprotocol[server]>=0.1.0   # or fastmcp>=2.0.0 if you prefer FastMCP
 fastapi
 uvicorn[standard]
 gunicorn
