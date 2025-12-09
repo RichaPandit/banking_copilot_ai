@@ -10,7 +10,6 @@ import pandas as pd
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 from mcp.server.fastmcp import FastMCP
-from mcp.server.http_transport import StreamableHTTPServerTransport
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -20,9 +19,10 @@ MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
 
-mcp = FastMCP("BankingMCP")
 app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
 manifest_path = os.path.join("copilot_integration","copilot_manifest.json")
+mcp = FastMCP("BankingMCP", json_response=True, streamable_http_path="/")
+app.mount("/mcp", mcp.streamable_http_app())
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("banking-mcp")
