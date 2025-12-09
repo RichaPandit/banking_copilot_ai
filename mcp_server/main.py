@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from typing import Optional, Dict, Any, List
 import logging, json, os
 from datetime import datetime
@@ -283,15 +283,14 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
     try:
         payload = await request.json()
     except Exception:
-        return Response(content=json.dumps(jsonrpc_error(None, -32700, "Parse error")), media_type="application/json")
+        return JSONResponse(content=jsonrpc_error(None, -32700, "Parse error"))
 
     logger.info("RAW BODY: %s", str(payload)[:500])
 
     if isinstance(payload, list):
         if all((not isinstance(el, dict)) or (not el.get("method")) for el in payload):
-            logger.info("Batch probe received without methods; returning empty array to satisfy client")
-            return Response(content="[]", media_type="application/json")
-        responses: List[Dict[str, Any]] = []
+            return JSONResponse(content=[])
+        responses = []
         for el in payload:
             if not isinstance(el, dict):
                 responses.append(jsonrpc_error(None, -32600, "Invalid Request"))
@@ -299,15 +298,16 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
             resp = await process_mcp_element(el, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
             if resp is not None:
                 responses.append(resp)
-        return Response(content=json.dumps(responses), media_type="application/json")
+        return JSONResponse(content=responses)
 
     if not isinstance(payload, dict):
-        return Response(content=json.dumps(jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)")), media_type="application/json")
+        return JSONResponse(content=jsonrpc_error(None, -32600, "Invalid Request (expected object or batch)"))
 
     resp = await process_mcp_element(payload, x_agent_key, x_agent_key_alt, allow_unauth_discovery=True)
     if resp is None:
         return Response(status_code=204)
-    return Response(content=json.dumps(resp), media_type="application/json")
+    
+    return JSONResponse(content=resp)
 
 @app.post("/")
 async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
