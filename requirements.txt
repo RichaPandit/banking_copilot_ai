@@ -1,4 +1,5 @@
-modelcontextprotocol[server]>=0.1.0   # or fastmcp>=2.0.0 if you prefer FastMCP
+# MCP Python SDK
+mcp[cli]>=1.23.0
 fastapi
 uvicorn[standard]
 gunicorn
