@@ -62,7 +62,7 @@ def root_probe():
 
 mcp_server = Server("BankingMCP")
 mcp_adapter = FastMCP(mcp_server)
-app.mount("/mcp/", mcp_adapter)
+app.mount("/mcp/", mcp_adapter.asgi)
 
 # TEMP: route dump to verify /mcp appears in logs
 for r in app.routes:
