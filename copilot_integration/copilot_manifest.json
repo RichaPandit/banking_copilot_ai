@@ -73,7 +73,7 @@
             {
                 "name": "escalateAlert",
                 "displayName": "Escalate Alert",
-                "invokeUrl": "/tools/escalate-alert/{company_id}",
+                "invokeUri": "/tools/escalate-alert/{company_id}",
                 "method": "POST",
                 "pathParameters": [
                     {"name": "company_id", "required": true }

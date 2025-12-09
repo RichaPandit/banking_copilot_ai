@@ -19,6 +19,7 @@ DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
 
 app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0")
+manifest_path = os.path.join("copilot_integration","copilot_manifest.json")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("banking-mcp")
@@ -308,6 +309,12 @@ async def _handle_jsonrpc(request: Request, x_agent_key: Optional[str], x_agent_
         return Response(status_code=204)
     
     return JSONResponse(content=resp)
+
+@app.get("/copilot_manifest.json")
+async def get_manifest():
+    with open(manifest_path, "r") as f:
+        manifest = json.load(f)
+    return JSONResponse(content=manifest)
 
 @app.post("/")
 async def root_forward(request: Request, x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER), x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
