@@ -5,14 +5,16 @@ from typing import Optional, Dict, Any
 import logging, json, os
 from datetime import datetime
 import pandas as pd
-
+import mcp
 # Project-local utilities/routers (keep your existing behavior)
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
 from mcp.server import Server
-from mcp.server.fastmcp import MCPServer
+from mcp.server.fastmcp import FastMCP
+
+print(mcp.__version__)
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -60,7 +62,7 @@ def root_probe():
 # Stateless mode avoids session-manager task group initialization.
 
 mcp_server = Server("BankingMCP")
-mcp_adapter = MCPServer(mcp_server)
+mcp_adapter = FastMCP(mcp_server)
 app.mount("/mcp/", mcp_adapter)
 
 # TEMP: route dump to verify /mcp appears in logs
