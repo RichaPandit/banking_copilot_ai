@@ -261,13 +261,14 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
         return jsonrpc_result(req_id, result)
 
     if method == "resources/list":
+        base = os.getenv("MCP_BASE_URL", "https://banking-ai-mcp-hpg8e8d7dxe0hkf0.uksouth-01.azurewebsites.net")
         result = {
             "resources": [
                 {
                     "name": "companies",
                     "displayName": "Companies",
                     "description": "List of corporate borrowers",
-                    "uri": "/resources/companies",
+                    "uri": f"{base}/resources/companies",
                     "method": "GET",
                     "responseFormat": "json"
                 },
@@ -275,7 +276,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "name": "financials",
                     "displayName": "Financials",
                     "description": "Income statement and balance sheet",
-                    "uri": "resources/financials/{company_id}",
+                    "uri": f"{base}/resources/financials/{{company_id}}",
                     "method": "GET",
                     "responseFormat": "json"
                 },
@@ -283,7 +284,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "name": "exposure",
                     "displayName": "Exposure",
                     "description": "Sanctioned limit, utilized limit, overdue, collateral, DPD",
-                    "uri": "resources/exposure/{company_id}",
+                    "uri": f"{base}/resources/exposure/{{company_id}}",
                     "method": "GET",
                     "responseFormat": "json"
                 },
@@ -291,7 +292,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "name": "covenants",
                     "displayName": "Covenants",
                     "description": "Covenant thresholds and last actuals",
-                    "uri": "resources/covenants/{company_id}",
+                    "uri": f"{base}/resources/covenants/{{company_id}}",
                     "method": "GET",
                     "responseFormat": "json"
                 },
@@ -299,13 +300,51 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
                     "name": "ews",
                     "displayName": "EarlyWarningSignals",
                     "description": "Early warning signal events",
-                    "uri": "resources/ews/{company_id}",
+                    "uri": f"{base}/resources/ews/{{company_id}}",
                     "method": "GET",
                     "responseFormat": "json"
                 }
             ]
         }
         return jsonrpc_result(req_id, result)
+    
+    # main.py – add resources/read branch
+    if method == "resources/read":
+        uri = params.get("uri")
+        if not uri:
+            return jsonrpc_error(req_id, -32602, "Missing required param 'uri'")
+        # naive routing by path; you can make this more robust
+        try:
+            if uri.endswith("/resources/companies"):
+                payload = companies.to_dict(orient="records")
+            elif "/resources/financials/" in uri:
+                cid = uri.rsplit("/", 1)[-1]
+                payload = financials[financials["company_id"] == cid].to_dict(orient="records")
+            elif "/resources/exposure/" in uri:
+                cid = uri.rsplit("/", 1)[-1]
+                payload = exposure[exposure["company_id"] == cid].to_dict(orient="records")
+            elif "/resources/covenants/" in uri:
+                cid = uri.rsplit("/", 1)[-1]
+                payload = covenants[covenants["company_id"] == cid].to_dict(orient="records")
+            elif "/resources/ews/" in uri:
+                cid = uri.rsplit("/", 1)[-1]
+                payload = ews[ews["company_id"] == cid].to_dict(orient="records")
+            else:
+                return jsonrpc_error(req_id, -32602, f"Unknown resource URI: {uri}")
+
+            # Return MCP resource contents
+            return jsonrpc_result(req_id, {
+                "contents": [
+                    {
+                        "uri": uri,
+                        "mimeType": "application/json",
+                        "text": json.dumps(payload)
+                    }
+                ]
+            })
+        except Exception as ex:
+            return jsonrpc_error(req_id, -32000, f"Server error: {ex}")
+
 
     if method == "tools/call":
         name = params.get("name")

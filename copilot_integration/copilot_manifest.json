@@ -83,7 +83,7 @@
         ],
         "auth": {
             "scheme": "ApiKey",
-            "headerName": "x_agent_id",
+            "headerName": "x-agent-key",
             "description": "Provide the agent ID or assertion header required by MCP server."
             
         },
