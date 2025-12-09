@@ -356,7 +356,7 @@ async def process_mcp_element(payload: Dict[str, Any], x_agent_key: Optional[str
             content_obj = await _dispatch_tool(name, arguments, agent_id)
             return jsonrpc_result(req_id, {
                 "content": [
-                    { "type": "json": content_obj }
+                    { "type": "json", "json": content_obj }
                     ],
                     "isError": False
                 })
