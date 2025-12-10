@@ -107,7 +107,9 @@ mcp_adapter.add_tool(get_ews)
 mcp_adapter.add_tool(generate_report_internal)
 
 # ---- Mount MCP Sub-App ----
-app.mount("/mcp/", mcp_adapter.streamable_http_app())
+mcp_app = mcp_adapter.streamable_http_app()
+mcp_app.openapi = lambda: {}
+app.mount("/mcp/", mcp_app)
 
 # -------------
 # Diagnostic
