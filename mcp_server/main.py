@@ -75,13 +75,15 @@ async def legacy_root_redirect():
 def ping() -> dict:
     return {"ok": True, "ts": datetime.now(timezone.utc).replace("+00:00", "Z")}
 
+mcp_adapter.add_tool("ping", ping)
 # 3) Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
 import mcp as mcp_pkg
 
-@app.get("/diag/mcp")
-def diag_mcp():
-    return {"mcp_version": getattr(mcp_pkg, "__version__", "unknown")}
-
+@app.get("/diag/mcp-methods")
+def diag_mcp_methods():
+    return {"FastMCP_dir": dir(FastMCP),
+            "adapter_dir": dir(mcp_adapter)
+            }
 
 # -----------------
 # REST fallback endpoints (unchanged behavior)
