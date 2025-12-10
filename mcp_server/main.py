@@ -200,10 +200,11 @@ mcp_adapter.add_tool(generate_report_wrapper)
 # Diagnostics
 # -------------
 @app.get("/diag/mcp-status")
-def diag_mcp_status():
+async def diag_mcp_status():
     try:
+        tools = await mcp_adapter.list_tools()
         return {
-            "tools": [t["name"] for t in mcp_adapter.list_tools()],
+            "tools": [t["name"] for t in tools],
             "initialized": True
         }
     except Exception as e:
