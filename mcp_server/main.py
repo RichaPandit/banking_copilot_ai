@@ -66,72 +66,10 @@ def root_probe():
 @app.post("/")
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
-# -------------
-# MCP: Streamable HTTP sub-app
-# -------------
-mcp_adapter = FastMCP("Banking MCP")
-
-# ---- Define MCP Tools ----
-
-# 1). Ping
-@mcp_adapter.tool()
-def ping() -> dict:
-    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
-mcp_adapter.add_tool(ping)
-
-# 2). Financials
-def get_financials(context: Context, company_id: str) -> dict:
-    data = financials[financials["company_id"] == company_id]
-    return data.to_dict(orient="records")
-mcp_adapter.add_tool(get_financials)
-
-# 3). Exposure
-def get_exposure(context: Context, company_id: str) -> dict:
-    data = exposure[exposure["company_id"] == company_id]
-    return data.to_dict(orient="records")
-mcp_adapter.add_tool(get_exposure)
-
-# 4). Covenants
-def get_covenants(context: Context, company_id: str) -> dict:
-    data = covenants[covenants["company_id"] == company_id]
-    return data.to_dict(orient="records")
-mcp_adapter.add_tool(get_covenants)
-
-# 5). Early Warning Signals (EWS)
-def get_ews(context: Context, company_id: str) -> dict:
-    data = ews[ews["company_id"] == company_id]
-    return data.to_dict(orient="records")
-mcp_adapter.add_tool(get_ews)
-
-# 6). Generate Report (from existing router function)
-mcp_adapter.add_tool(generate_report_internal)
-
-# ---- Mount MCP Sub-App ----
-mcp_app = mcp_adapter.streamable_http_app()
-mcp_app.openapi = lambda: {}
-app.mount("/mcp/", mcp_app)
-
-# -------------
-# Diagnostic
-# -------------
-@app.get("/diag/mcp-methods")
-def diag_mcp_methods():
-    return {"FastMCP_dir": dir(FastMCP),
-            "adapter_dir": dir(mcp_adapter),
-            "mcp_version": getattr(mcp_pkg, "__version__", "unknown")
-        }
 
 # -----------------
-# REST fallback endpoints (unchanged behavior)
+# REST: resource endpoints
 # -----------------
-
-def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
-    agent_id = primary or alternate
-    if not agent_id:
-        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
-    validate_agent_id(agent_id)
-    return agent_id
-
 @app.get("/copilot_manifest.json")
 async def get_manifest():
     with open(manifest_path, "r") as f:
@@ -168,5 +106,111 @@ def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, 
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
 
+# -----------------
+# REST: Tool endpoints
+# -----------------
+@app.post("/tools/generate-report/{company-id}")
+def rest_generate_report(company_id: str,
+                         payload: Optional[Dict[str, Any]] = None,
+                         x_agent_key: Optional[str]= Header(None, alias=AGENT_HEADER),
+                         x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
+    _ = resolve_agent_id(x_agent_key, x_agent_key_alt)
+    request = {"company_id": company_id}
+    if isinstance(payload,dict):
+        request.update(payload)
+    result = generate_report_internal(request)
+    if isinstance(result, pd.DataFrame):
+        return result.to_dict(orient="records")
+    return result
+
+@app.post("/tools/escalate-alert/{company-id}")
+def rest_escalate_alert(company_id: str,
+                         x_agent_key: Optional[str]= Header(None, alias=AGENT_HEADER),
+                         x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
+    _ = resolve_agent_id(x_agent_key, x_agent_key_alt)
+    now = datetime.now(timezone.utc).isoformat()
+    return {"status": "escalated", "company_id": company_id, "escalated_at": now}
+
+# -------------
+# MCP: Streamable HTTP sub-app setup
+# -------------
+mcp_adapter = FastMCP("Banking MCP")
+
+# ---- Define MCP Tools ----
+
+# 1). Ping
+@mcp_adapter.tool()
+def ping() -> dict:
+    return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
+mcp_adapter.add_tool(ping)
+
+def mcp_get_companies(context: Context, limit: int = DEFAULT_LIST_LIMIT, offset: int =0) -> list[dict]:
+    lim = min(max(limit,1), MAX_LIST_LIMIT)
+    return companies.iloc[offset: offset+lim].to_dict(orient="records")
+mcp_adapter.add_tool(mcp_get_companies)
+
+# 2). Financials
+def mcp_get_financials(context: Context, company_id: str) -> list[dict]:
+    df = financials[financials["company_id"] == company_id]
+    return df.to_dict(orient="records")
+mcp_adapter.add_tool(mcp_get_financials)
+
+# 3). Exposure
+def mcp_get_exposure(context: Context, company_id: str) -> list[dict]:
+    df = exposure[exposure["company_id"] == company_id]
+    return df.to_dict(orient="records")
+mcp_adapter.add_tool(mcp_get_exposure)
+
+# 4). Covenants
+def mcp_get_covenants(context: Context, company_id: str) -> list[dict]:
+    df = covenants[covenants["company_id"] == company_id]
+    return df.to_dict(orient="records")
+mcp_adapter.add_tool(mcp_get_covenants)
+
+# 5). Early Warning Signals (EWS)
+def mcp_get_ews(context: Context, company_id: str) -> list[dict]:
+    data = ews[ews["company_id"] == company_id]
+    return data.to_dict(orient="records")
+mcp_adapter.add_tool(mcp_get_ews)
+
+# 6). Generate Report (from existing router function)
+def generate_report_wrapper(context: Context, company_id: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    request = {"company_id": company_id}
+    if isinstance(params, dict):
+        request.update(params)
+    try:
+        result = generate_report_internal(request)
+    except TypeError:
+        result = generate_report_internal(company_id)
+    if isinstance(result,pd.DataFrame):
+        return{"rows": result.to_dict(orient="records")}
+    if isinstance(result,dict):
+        return result
+    return {"result": str(result)}
+mcp_adapter.add_tool(generate_report_wrapper)
+
+# ---- Mount MCP Sub-App ----
+mcp_app = mcp_adapter.streamable_http_app()
+mcp_app.openapi = lambda: {}
+app.mount("/mcp/", mcp_app)
+
 # Include Tools Router
-app.include_router(tools_router)
+if tools_router is not None:
+    app.include_router(tools_router)
+
+# -------------
+# Diagnostics
+# -------------
+@app.get("/diag/mcp-methods")
+def diag_mcp_methods():
+    return {"FastMCP_dir": dir(FastMCP),
+            "adapter_dir": dir(mcp_adapter),
+            "mcp_version": getattr(mcp_pkg, "__version__", "unknown")
+        }
+
+def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
+    agent_id = primary or alternate
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+    validate_agent_id(agent_id)
+    return agent_id
