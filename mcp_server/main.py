@@ -5,12 +5,18 @@ from typing import Optional, Dict, Any
 import logging, json, os
 from datetime import datetime, timezone
 import pandas as pd
+
 # Project-local utilities/routers (keep your existing behavior)
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
 from mcp.server.fastmcp import FastMCP, Context
+# Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
+import mcp as mcp_pkg
 
+#-------------------
+# Constants & Config
+#-------------------
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
 AGENT_HEADER: str = "x-agent-key"
@@ -18,9 +24,16 @@ AGENT_HEADER_ALT: str = AGENT_HEADER.replace('-', '_')
 MAX_LIST_LIMIT: int = 200
 DEFAULT_LIST_LIMIT: int = 50
 DEV_ASSUME_KEY: Optional[str] = os.getenv("MCP_DEV_ASSUME_KEY")
-
-app = FastAPI(title="Banking MCP Server", description="MCP Server for Banking Risk Intelligence Agent", version="1.0", debug=True)
 manifest_path = os.path.join("copilot_integration","copilot_manifest.json")
+
+#-------------------
+# FASTAPI App
+#-------------------
+app = FastAPI(
+    title="Banking MCP Server",
+    description="MCP Server for Banking Risk Intelligence Agent",
+    version="1.0",
+    debug=True)
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -30,7 +43,7 @@ logger = logging.getLogger("banking-mcp")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # -----------------
-# Data bootstrap
+# Load CSV Data
 # -----------------
 companies = load_csv("data/companies.csv")
 financials = load_csv("data/financials.csv")
@@ -39,7 +52,7 @@ covenants = load_csv("data/covenants.csv")
 ews = load_csv("data/ews.csv")
 
 # -----------------
-# Health & root
+# REST: Health & Root
 # -----------------
 @app.get("/health")
 def health():
@@ -50,41 +63,61 @@ def root_probe():
     # Advertise the canonical MCP endpoint with a trailing slash
     return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp/", "variant": "streamable-http"}
 
-# -------------
-# MCP: mount official Streamable HTTP sub-app at /mcp (stateless)
-# -------------
-# Sub-app serves at its own root ('/'); we mount it at '/mcp' on FastAPI.
-# Stateless mode avoids session-manager task group initialization.
-
-mcp_adapter = FastMCP("Banking MCP")
-app.mount("/mcp/", mcp_adapter.streamable_http_app())
-
-# TEMP: route dump to verify /mcp appears in logs
-for r in app.routes:
-    try:
-        logger.info("ROUTE MOUNTED: %s", getattr(r, "path", r))
-    except Exception:
-        pass
-
-# Optional: redirect legacy root POSTs straight to canonical /mcp/
 @app.post("/")
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
+# -------------
+# MCP: Streamable HTTP sub-app
+# -------------
+mcp_adapter = FastMCP("Banking MCP")
 
+# ---- Define MCP Tools ----
+
+# 1). Ping
 @mcp_adapter.tool()
 def ping() -> dict:
     return {"ok": True, "ts": datetime.now(timezone.utc).isoformat()}
-
 mcp_adapter.add_tool(ping)
 
-# 3) Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
-import mcp as mcp_pkg
+# 2). Financials
+def get_financials(context: Context, company_id: str) -> dict:
+    data = financials[financials["company_id"] == company_id]
+    return data.to_dict(orient="records")
+mcp_adapter.add_tool(get_financials)
 
+# 3). Exposure
+def get_exposure(context: Context, company_id: str) -> dict:
+    data = exposure[exposure["company_id"] == company_id]
+    return data.to_dict(orient="records")
+mcp_adapter.add_tool(get_exposure)
+
+# 4). Covenants
+def get_covenants(context: Context, company_id: str) -> dict:
+    data = covenants[covenants["company_id"] == company_id]
+    return data.to_dict(orient="records")
+mcp_adapter.add_tool(get_covenants)
+
+# 5). Early Warning Signals (EWS)
+def get_ews(context: Context, company_id: str) -> dict:
+    data = ews[ews["company_id"] == company_id]
+    return data.to_dict(orient="records")
+mcp_adapter.add_tool(get_ews)
+
+# 6). Generate Report (from existing router function)
+mcp_adapter.add_tool(generate_report_internal)
+
+# ---- Mount MCP Sub-App ----
+app.mount("/mcp/", mcp_adapter.streamable_http_app())
+
+# -------------
+# Diagnostic
+# -------------
 @app.get("/diag/mcp-methods")
 def diag_mcp_methods():
     return {"FastMCP_dir": dir(FastMCP),
-            "adapter_dir": dir(mcp_adapter)
-            }
+            "adapter_dir": dir(mcp_adapter),
+            "mcp_version": getattr(mcp_pkg, "__version__", "unknown")
+        }
 
 # -----------------
 # REST fallback endpoints (unchanged behavior)
@@ -133,5 +166,5 @@ def get_ews_endpoint(company_id: str, x_agent_key: Optional[str] = Header(None, 
     data = ews[ews["company_id"] == company_id]
     return data.to_dict(orient="records")
 
-# Keep your existing tools router (e.g., /tools/generate-report/{company_id})
+# Include Tools Router
 app.include_router(tools_router)
