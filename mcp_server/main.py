@@ -67,6 +67,13 @@ def root_probe():
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
 
+def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
+    agent_id = primary or alternate
+    if not agent_id:
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+    validate_agent_id(agent_id)
+    return agent_id
+
 # -----------------
 # REST: resource endpoints
 # -----------------
@@ -193,10 +200,10 @@ mcp_adapter.add_tool(generate_report_wrapper)
 # Diagnostics
 # -------------
 @app.get("/diag/mcp-status")
-def diag_mcp_methods():
+def diag_mcp_status():
     try:
         return {
-            "tools": [t.__name__ for t in mcp_adapter.tools],
+            "tools": [t["name"] for t in mcp_adapter.list_tools()],
             "initialized": True
         }
     except Exception as e:
@@ -220,10 +227,3 @@ def diag_mcp_methods():
             "adapter_dir": dir(mcp_adapter),
             "mcp_version": getattr(mcp_pkg, "__version__", "unknown")
         }
-
-def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
-    agent_id = primary or alternate
-    if not agent_id:
-        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
-    validate_agent_id(agent_id)
-    return agent_id
