@@ -3,15 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, JSONResponse, RedirectResponse
 from typing import Optional, Dict, Any
 import logging, json, os
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
-import mcp
 # Project-local utilities/routers (keep your existing behavior)
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
-
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -73,9 +71,9 @@ for r in app.routes:
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
 
-@mcp.tool()
+@mcp_adapter.tool()
 def ping() -> dict:
-    return {"ok": True, "ts": datetime.now().isoformat() + "Z"}
+    return {"ok": True, "ts": datetime.now(timezone.utc).replace("+00:00", "Z")}
 
 # 3) Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
 import mcp as mcp_pkg
