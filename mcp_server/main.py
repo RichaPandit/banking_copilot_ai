@@ -189,6 +189,19 @@ def generate_report_wrapper(context: Context, company_id: str, params: Optional[
     return {"result": str(result)}
 mcp_adapter.add_tool(generate_report_wrapper)
 
+# -------------
+# Diagnostics
+# -------------
+@app.get("/diag/mcp-status")
+def diag_mcp_methods():
+    try:
+        return {
+            "tools": [t.__name__ for t in mcp_adapter.tools],
+            "initialized": True
+        }
+    except Exception as e:
+        return {"initialized": False, "error": str(e)}
+
 # ---- Mount MCP Sub-App ----
 mcp_app = mcp_adapter.streamable_http_app()
 mcp_app.openapi = lambda: {}
