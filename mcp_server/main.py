@@ -11,9 +11,8 @@ from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
-from mcp.server import Server
+from mcp.server import tool, Server
 from mcp.server.fastmcp import FastMCP
-
 
 JSONRPC_VERSION: str = "2.0"
 PROTOCOL_VERSION: str = "2024-11-05"
@@ -76,7 +75,7 @@ for r in app.routes:
 async def legacy_root_redirect():
     return RedirectResponse(url="/mcp/", status_code=307)
 
-@mcp_server.tool()
+@tool()
 def ping() -> dict:
     return {"ok": True, "ts": datetime.now().isoformat() + "Z"}
 
