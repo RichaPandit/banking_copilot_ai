@@ -204,7 +204,7 @@ async def diag_mcp_status():
     try:
         tools = await mcp_adapter.list_tools()
         return {
-            "tools": [t["name"] for t in tools],
+            "tools": [t.name for t in tools],
             "initialized": True
         }
     except Exception as e:
