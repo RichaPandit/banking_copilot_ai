@@ -11,6 +11,7 @@ from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 # MCP SDK (official) – use ASGI sub-app for Streamable HTTP in stateless mode
 from mcp.server.fastmcp import FastMCP, Context
+from starlette.routing import Mount
 # Add a diag endpoint to confirm MCP SDK version (ensures stateless_http is supported).
 import mcp as mcp_pkg
 
@@ -209,7 +210,8 @@ async def diag_mcp_status():
 # ---- Mount MCP Sub-App ----
 mcp_app = mcp_adapter.streamable_http_app()
 mcp_app.openapi = lambda: {}
-app.mount("/mcp/", mcp_app)
+app.mount("/mcp", mcp_app)
+app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
 
 # Include Tools Router
 if tools_router is not None:
