@@ -9,7 +9,7 @@ import pandas as pd
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 from mcp.server.fastmcp import FastMCP, Context
-from starlette.routing import Mount  # ← ASGIRoute removed
+from starlette.routing import Mount
 
 # -----------------
 # FastAPI app
@@ -111,7 +111,21 @@ app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
 # -----------------
 @app.get("/diag/routes")
 def diag_routes():
-    return [getattr(r, "path", str(r)) for r in app.router.routes]
+    return {
+        "redirect_slashes": getattr(app.router, "redirect_slashes", None),
+        "paths": [getattr(r, "path", str(r)) for r in app.router.routes],
+    }
+
+@app.get("/diag/env")
+def diag_env():
+    # Quick visibility into path prefixes that might be applied by the host
+    import os
+    return {
+        "root_path": getattr(app, "root_path", ""),
+        "env_prefix": os.getenv("SCRIPT_NAME", ""),
+        "headers_hint": ["x-forwarded-proto", "x-forwarded-host", "x-original-url"],
+    }
+
 
 # -----------------
 # Include your existing FastAPI routers (optional)
