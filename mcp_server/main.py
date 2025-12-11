@@ -97,7 +97,6 @@ app = FastAPI(
     description="MCP Server for Banking Risk Intelligence Agent",
     version="1.0",
     debug=True,
-    lifespan=mcp_app.lifespan,
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
