@@ -211,6 +211,7 @@ async def diag_mcp_status():
 # ---- Mount MCP Sub-App ----
 mcp_app = mcp_adapter.streamable_http_app()
 mcp_app.openapi = lambda: {}
+app.router.redirect_slashes = False
 app.mount("/mcp", mcp_app)
 
 app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
