@@ -12,17 +12,6 @@ from mcp.server.fastmcp import FastMCP, Context
 from starlette.routing import Mount
 
 # -----------------
-# FastAPI app
-# -----------------
-app = FastAPI(
-    title="Banking MCP Server",
-    description="MCP Server for Banking Risk Intelligence Agent",
-    version="1.0",
-    debug=True,
-)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-# -----------------
 # CSV data
 # -----------------
 companies   = load_csv("data/companies.csv")
@@ -49,7 +38,7 @@ def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
 # -----------------
 # MCP adapter + tools (decorators ONLY — no add_tool calls)
 # -----------------
-mcp_adapter = FastMCP("Banking MCP")
+mcp_adapter = FastMCP("Banking MCP", streamable_http_path="/")
 
 @mcp_adapter.tool()
 def ping() -> dict:
@@ -99,6 +88,19 @@ def generate_report_wrapper(context: Context, company_id: str, params: Optional[
 # Mount MCP ASGI sub-app (robust to slash variants)
 # -----------------
 mcp_app = mcp_adapter.streamable_http_app()
+
+# -----------------
+# FastAPI app
+# -----------------
+app = FastAPI(
+    title="Banking MCP Server",
+    description="MCP Server for Banking Risk Intelligence Agent",
+    version="1.0",
+    debug=True,
+    lifespan=mcp_app.lifespan,
+)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
 # Avoid 307 redirect /mcp -> /mcp/
 app.router.redirect_slashes = False
 
@@ -125,7 +127,6 @@ def diag_env():
         "env_prefix": os.getenv("SCRIPT_NAME", ""),
         "headers_hint": ["x-forwarded-proto", "x-forwarded-host", "x-original-url"],
     }
-
 
 # -----------------
 # Include your existing FastAPI routers (optional)
