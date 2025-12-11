@@ -1,10 +1,9 @@
-mcp[cli]>=1.23.0
-fastapi>=0.95.0
-uvicorn[standard]>=0.31.1
-gunicorn==21.2.0
+gunicorn==22.0.0
+uvicorn==0.23.2
+fastapi==0.111.1
+mcp[cli]
 pandas>=1.5.0
 python-dotenv
 python-docx
 requests
 docx2pdf
-modelcontextprotocol
