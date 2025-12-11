@@ -64,9 +64,7 @@ def root_probe():
     return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp/", "variant": "streamable-http"}
 
 @app.post("/")
-async def root_jsonrpc(request: Request,
-                       x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
-                       x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
+async def root_jsonrpc(request: Request):
     body = await request.body()
     #headers = {}
     #if x_agent_key: headers[AGENT_HEADER] = x_agent_key
