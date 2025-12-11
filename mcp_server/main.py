@@ -63,14 +63,6 @@ def root_probe():
     # Advertise the canonical MCP endpoint with a trailing slash
     return {"name": "Banking MCP Server", "status": "ready", "mcpEntry": "/mcp/", "variant": "streamable-http"}
 
-@app.post("/")
-async def root_jsonrpc(request: Request):
-    body = await request.body()
-    #headers = {}
-    #if x_agent_key: headers[AGENT_HEADER] = x_agent_key
-    #if x_agent_key_alt: headers[AGENT_HEADER_ALT] = x_agent_key_alt
-    return await mcp_adapter.run_streamable_http_async(body)
-
 def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
     agent_id = primary or alternate
     if not agent_id:
