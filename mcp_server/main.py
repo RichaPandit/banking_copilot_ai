@@ -216,8 +216,8 @@ app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
 async def _mcp_forwarder(scope, receive, send):
     await mcp_app(scope, receive, send)
 
-app.add_route("/mcp",  endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
-app.add_route("/mcp/", endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
+app.add_api_route("/mcp",  endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
+app.add_api_route("/mcp/", endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
 
 @app.api_route("/mcp/{rest_of_path:path}", methods=["GET", "POST", "OPTIONS"])
 async def _mcp_catch_all(request: Request):
