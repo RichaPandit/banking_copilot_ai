@@ -39,8 +39,8 @@ def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
 # MCP adapter + tools (decorators ONLY — no add_tool calls)
 # -----------------
 mcp_adapter = FastMCP("Banking MCP",
-                      streamable_http_path="/",
-                      json_response=True,)
+                      streamable_http_path="/mcp",
+                      json_response=True)
 
 @mcp_adapter.tool()
 def ping() -> dict:
