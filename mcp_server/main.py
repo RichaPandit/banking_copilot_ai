@@ -213,6 +213,21 @@ mcp_app.openapi = lambda: {}
 app.mount("/mcp", mcp_app)
 app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
 
+async def _mcp_forwarder(scope, receive, send):
+    await mcp_app(scope, receive, send)
+
+app.add_route("/mcp",  endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
+app.add_route("/mcp/", endpoint=_mcp_forwarder, methods=["GET", "POST", "OPTIONS"])
+
+@app.api_route("/mcp/{rest_of_path:path}", methods=["GET", "POST", "OPTIONS"])
+async def _mcp_catch_all(request: Request):
+    scope = request.scope
+    async def _receive():
+        return await request.receive()
+    async def _send(message):
+        pass
+    return Response(status_code=307, headers={"Location": "/mcp"})
+
 # Include Tools Router
 if tools_router is not None:
     app.include_router(tools_router)
