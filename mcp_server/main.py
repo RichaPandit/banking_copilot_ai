@@ -68,10 +68,10 @@ async def root_jsonrpc(request: Request,
                        x_agent_key: Optional[str] = Header(None, alias=AGENT_HEADER),
                        x_agent_key_alt: Optional[str] = Header(None, alias=AGENT_HEADER_ALT)):
     body = await request.body()
-    headers = {}
-    if x_agent_key: headers[AGENT_HEADER] = x_agent_key
-    if x_agent_key_alt: headers[AGENT_HEADER_ALT] = x_agent_key_alt
-    return await mcp_adapter.run_streamable_http_async(body, headers)
+    #headers = {}
+    #if x_agent_key: headers[AGENT_HEADER] = x_agent_key
+    #if x_agent_key_alt: headers[AGENT_HEADER_ALT] = x_agent_key_alt
+    return await mcp_adapter.run_streamable_http_async(body)
 
 def resolve_agent_id(primary: Optional[str], alternate: Optional[str]) -> str:
     agent_id = primary or alternate
