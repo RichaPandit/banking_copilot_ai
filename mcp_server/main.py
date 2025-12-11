@@ -9,7 +9,7 @@ import pandas as pd
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
 from mcp.server.fastmcp import FastMCP, Context
-from starlette.routing import Mount
+from starlette.routing import Mount, ASGIRoute
 
 # -----------------
 # FastAPI app
@@ -113,6 +113,10 @@ app.router.redirect_slashes = False
 # Mount canonical path and trailing-slash variant
 app.mount("/mcp", mcp_app)
 app.router.routes.append(Mount(path="/mcp/", app=mcp_app))
+
+# Bind ASGI routes directly (this is the key correction)
+app.router.routes.append(ASGIRoute("/mcp",  endpoint=mcp_app, methods=["GET", "POST", "OPTIONS"]))
+app.router.routes.append(ASGIRoute("/mcp/", endpoint=mcp_app, methods=["GET", "POST", "OPTIONS"]))
 
 # -----------------
 # (Optional) include your existing FastAPI routers
