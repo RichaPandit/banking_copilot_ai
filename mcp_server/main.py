@@ -1,11 +1,18 @@
 from mcp.server.fastmcp import FastMCP
+from fastapi import FastAPI
+import uvicorn
 
-
-mcp = FastMCP("Banking MCP")
+mcp = FastMCP("Banking MCP", json_response=True, streamable_http_path="/")
 
 @mcp.tool()
 def add(a: int, b:int) -> int:
     return a+b
 
+# Expose via FastAPI (HTTP)
+app = FastAPI(title="Banking MCP Demo")
+app.mount("/", mcp.streamable_http_app())
+
+
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    # Run locally: http://127.0.0.1:8000
+    uvicorn.run("main_http:app", host="127.0.0.1", port=8000, reload=True)
