@@ -1,113 +1,100 @@
 {
-    "version": "1.0",
-    "name": "CreditRiskCopilotAgent",
-    "displayName": "Credit Risk Copilot (Work IQ + MCP)",
-    "description": "Enterprise Copilot agent for automated credit risk reviews. Uses Work IQ for context & MCP for secure data/tool access.",
-    "mcp": {
-        "baseUrl": "https://banking-ai-mcp-hpg8e8d7dxe0hkf0.uksouth-01.azurewebsites.net/mcp",
-        "resources": [
-            {
-                "name": "companies",
-                "displayName": "Companies",
-                "uri": "/resources/companies",
-                "method": "GET",
-                "responseFormat": "json",
-                "description": "List of corporate borrowers (company_id, company_name, sector)"
-            },
-            {
-                "name": "financials",
-                "displayName": "Financials",
-                "uri": "/resources/financials/{company_id}",
-                "method": "GET",
-                "responseFormat": "json",
-                "pathParameters": [
-                    {"name": "company_id", "required": true }
-                ],
-                "description": "Income statement and balance sheet time series"
-            },
-            {
-                "name": "exposure",
-                "displayName": "Exposure",
-                "uri": "/resources/exposure/{company_id}",
-                "method": "GET",
-                "responseFormat": "json",
-                "pathParameters": [
-                    {"name": "company_id", "required": true}
-                ],
-                "description": "Sanctioned limit, utilized amount, overdue, collateral, DPD"
-            },
-            {
-                "name": "covenants",
-                "displayName": "Covenants",
-                "uri": "/resources/covenants/{company_id}",
-                "method": "GET",
-                "responseFormat": "json",
-                "pathParameters": [
-                    {"name": "company_id", "required": true}
-                ],
-                "description": "Covenant thresholds and last actuals"
-            },
-            {
-                "name": "ews",
-                "displayName": "EarlyWarningSignals",
-                "uri": "/resources/ews/{company_id}",
-                "method": "GET",
-                "responseFormat": "json",
-                "pathParameters": [
-                    {"name": "company_id", "required": true}
-                ],
-                "description": "Early warning signal events"
-            }
-        ],
-        "tools": [
-            {
-                "name": "generateReport",
-                "displayName": "Generate Risk Report",
-                "invokeUri": "/tools/generate-report/{company_id}",
-                "method": "POST",
-                "pathParameters": [
-                    {"name": "company_id", "required": true }
-                ],
-                "description": "Create a Word and PDF risk review report and return file paths + metadata"
-            },
-            {
-                "name": "escalateAlert",
-                "displayName": "Escalate Alert",
-                "invokeUri": "/tools/escalate-alert/{company_id}",
-                "method": "POST",
-                "pathParameters": [
-                    {"name": "company_id", "required": true }
-                ],
-                "description": "Trigger an escalation workflow (e.g., Power Automate) for high risk"
-            }
-        ],
-        "auth": {
-            "scheme": "ApiKey",
-            "headerName": "x-agent-key",
-            "description": "Provide the agent ID or assertion header required by MCP server."
-            
-        },
-        "security": {
-            "requireTls": true,
-            "allowedOrigins": ["https://copilot.microsoft.com", "https://teams.microsoft.com"]
-        },
-        "transport": {
-            "useStreamableHttp": true
-        }
+  "version": "1.0",
+  "name": "CreditRiskCopilotAgent",
+  "displayName": "Credit Risk Copilot (Work IQ + MCP)",
+  "description": "Enterprise Copilot agent for automated credit risk reviews. Uses Work IQ for context & MCP for secure data/tool access.",
+
+  "mcp": {
+    "baseUrl": "https://banking-ai-mcp-hpg8e8d7dxe0hkf0.uksouth-01.azurewebsites.net/mcp"
+  },
+
+  "resources": [
+    {
+      "name": "companies",
+      "displayName": "Companies",
+      "uri": "data://companies",
+      "responseFormat": "json",
+      "description": "List of corporate borrowers (company_id, company_name, sector)"
     },
-    "workIQHints": {
-        "personality": "formal_business",
-        "preferredReportFormat": "word",
-        "preferredLanguage": "en-GB",
-        "defaultKPIs": ["ebitda", "net_income", "current_ratio", "dscr", "utilization"],
-        "templates": {
-            "quickReview": "short",
-            "detailedReview": "long"
-        }
+    {
+      "name": "financials",
+      "displayName": "Financials",
+      "uri": "data://financials/{company_id}",
+      "responseFormat": "json",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "description": "Income statement and balance sheet time series"
     },
-    "metadata": {
-        "owner": "risk-analytics@contoso.com",
-        "contact": "AmyFarah.Fowler@contoso.com",
-        "createdAt": "2025-11-27"
+    {
+      "name": "exposure",
+      "displayName": "Exposure",
+      "uri": "data://exposure/{company_id}",
+      "responseFormat": "json",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "description": "Sanctioned limit, utilized amount, overdue, collateral, DPD"
+    },
+    {
+      "name": "covenants",
+      "displayName": "Covenants",
+      "uri": "data://covenants/{company_id}",
+      "responseFormat": "json",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "description": "Covenant thresholds and last actuals"
+    },
+    {
+      "name": "ews",
+      "displayName": "EarlyWarningSignals",
+      "uri": "data://ews/{company_id}",
+      "responseFormat": "json",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "description": "Early warning signal events"
     }
+  ],
+
+  "tools": [
+    {
+      "name": "generateReport",
+      "displayName": "Generate Risk Report",
+      "description": "Create a Word risk review report and return file paths + metadata",
+      "invokeUri": "tools/generate-report/{company_id}",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "method": "POST"
+    },
+    {
+      "name": "escalateAlert",
+      "displayName": "Escalate Alert",
+      "description": "Trigger an escalation workflow for high risk",
+      "invokeUri": "tools/escalate-alert/{company_id}",
+      "pathParameters": [{ "name": "company_id", "required": true }],
+      "method": "POST"
+    }
+  ],
+
+  "auth": {
+    "scheme": "ApiKey",
+    "headerName": "x-agent-key",
+    "description": "Provide the agent ID or assertion header required by MCP server."
+  },
+
+  "security": {
+    "requireTls": true,
+    "allowedOrigins": [
+      "https://copilot.microsoft.com",
+      "https://teams.microsoft.com"
+    ]
+  },
+
+  "transport": { "useStreamableHttp": true },
+
+  "workIQHints": {
+    "personality": "formal_business",
+    "preferredReportFormat": "word",
+    "preferredLanguage": "en-GB",
+    "defaultKPIs": ["ebitda", "net_income", "current_ratio", "dscr", "utilization"]
+  },
+
+  "metadata": {
+    "owner": "risk-analytics@contoso.com",
+    "contact": "AmyFarah.Fowler@contoso.com",
+    "createdAt": "2025-11-27"
+  }
 }

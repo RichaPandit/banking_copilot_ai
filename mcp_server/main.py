@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 import os
 import logging
 import httpx
@@ -6,7 +6,7 @@ import requests
 import json
 
 from mcp_server.utils import load_csv, validate_agent_id
-from mcp_server.tools import router as tools_router, generate_report_internal
+from mcp_server.tools import generate_report_internal, escalate_alert_internal
 
 # FastMCP (MVP-style imports)
 from fastmcp.server import FastMCP
@@ -41,7 +41,6 @@ ews         = load_csv("data/ews.csv")
 LOCAL_TOKEN: str = os.getenv("MCP_DEV_ASSUME_KEY", os.getenv("LOCAL_TOKEN", "")).strip()
 # Optional external API token if you later call an API like OutScraper
 API_TOKEN: str = os.getenv("API_TOKEN", "").strip()
-
 HEADER_NAME = "x-agent-key"  # Aligns with your manifest
 
 # ---------------------------------------------------------------------------
@@ -97,50 +96,44 @@ mcp.add_middleware(UserAuthMiddleware())
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Sample resource (optional)
-# ---------------------------------------------------------------------------
-@mcp.resource("file://app.log")
-def get_log_file() -> str:
-    """Returns the application log file contents"""
-    try:
-        with open("app.log", "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        return "app.log not found"
+# ------------------------
+# Resources
+# ------------------------
 
-# ---------------------------------------------------------------------------
-# Sample tools (replace with your banking tools as needed)
-# ---------------------------------------------------------------------------
-@mcp.tool()
-async def ping() -> str:
-    return "pong"
-
-@mcp.tool()
-def mcp_get_companies(context: Context, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict]:
-    lim = min(max(limit, 1), MAX_LIST_LIMIT)
-    return companies.iloc[offset: offset + lim].to_dict(orient="records")
-
-@mcp.tool()
-def mcp_get_financials(context: Context, company_id: str) -> list[dict]:
+@mcp.resource(uri="data://financials/{company_id}", name="Financials",
+              description="Income statement and balance sheet time series",
+              mime_type="application/json")
+def res_financials(company_id: str) -> List[Dict]:
     df = financials[financials["company_id"] == company_id]
     return df.to_dict(orient="records")
 
-@mcp.tool()
-def mcp_get_exposure(context: Context, company_id: str) -> list[dict]:
+
+@mcp.resource(uri="data://exposure/{company_id}", name="Exposure",
+              description="Sanctioned limit, utilized amount, overdue, collateral, DPD",
+              mime_type="application/json")
+def res_exposure(company_id: str) -> List[Dict]:
     df = exposure[exposure["company_id"] == company_id]
     return df.to_dict(orient="records")
 
-@mcp.tool()
-def mcp_get_covenants(context: Context, company_id: str) -> list[dict]:
+
+@mcp.resource(uri="data://covenants/{company_id}", name="Covenants",
+              description="Covenant thresholds and last actuals",
+              mime_type="application/json")
+def res_covenants(company_id: str) -> List[Dict]:
     df = covenants[covenants["company_id"] == company_id]
     return df.to_dict(orient="records")
 
-@mcp.tool()
-def mcp_get_ews(context: Context, company_id: str) -> list[dict]:
-    data = ews[ews["company_id"] == company_id]
-    return data.to_dict(orient="records")
 
+@mcp.resource(uri="data://ews/{company_id}", name="EarlyWarningSignals",
+              description="Early warning signal events",
+              mime_type="application/json")
+def res_ews(company_id: str) -> List[Dict]:
+    df = ews[ews["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+# --------------------------
+# Tools
+# --------------------------
 @mcp.tool()
 async def generate_report(company_id: str) -> str:
     """
@@ -161,28 +154,24 @@ async def generate_report(company_id: str) -> str:
     # Return as JSON string, which FastMCP will emit as a text content block
     return json.dumps(result, ensure_ascii=False)
 
-# Example of calling an external API (kept similar to MVP style)
 @mcp.tool()
-async def get_external_reviews(query: str) -> str:
-    """Example external call (disabled if API_TOKEN missing)."""
-    if not API_TOKEN:
-        return "External API token not configured"
+def escalate_alert(context: Context, company_id: str) -> str:
+    """
+    Escalate to Microsoft Teams via Workflows webhook.
+    Returns a JSON string with status/code/message.
+    """
+    x_agent_id = _get_agent_id_from_headers()
 
-    api_url = (
-        "https://api.app.outscraper.com/maps/reviews-v3?"
-        f"query={query}&async=false&reviewsLimit=5"
+    # (Optionally) fetch current risk info to include in the card
+    # For now, we pass None; you can pass real scores from your CSVs or report result
+    result = escalate_alert_internal(
+        company_id=company_id,
+        x_agent_id=x_agent_id,
+        risk_score=None,
+        risk_rating=None,    
+        extra={}
     )
-    headers = {
-        "x-api-key": API_TOKEN,
-        "Content-Type": "application/json",
-    }
-    try:
-        resp = requests.get(api_url, headers=headers, timeout=20)
-        resp.raise_for_status()
-        return str(resp.json())
-    except requests.exceptions.RequestException as e:
-        logger.exception("Error calling external API")
-        return f"Error calling API: {e}"
+    return json.dumps(result, ensure_ascii=False)
 
 # ---------------------------------------------------------------------------
 # ASGI app for Azure App Service (gunicorn) and direct run fallback

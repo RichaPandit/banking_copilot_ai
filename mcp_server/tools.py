@@ -5,14 +5,77 @@ from rag_logic.risk_scoring import compute_risk_score
 import pandas as pd
 import datetime
 import os
+import requests
 from typing import Dict, Optional
 
 router = APIRouter()
 
-
 # Use a writable base path on App Service Linux
 BASE_DIR = os.environ.get("APP_BASE_DIR", "/home/site/wwwroot")
 REPORT_DIR = os.path.join(BASE_DIR, "reports", "generated_reports")
+TEAMS_WORKFLOW_WEBHOOK_URL: str = os.getenv("TEAMS_WORKFLOW_WEBHOOK_URL", "").strip()
+
+def escalate_alert_internal(
+    company_id: str,
+    x_agent_id: str,
+    risk_score: Optional[float] = None,
+    risk_rating: Optional[str] = None,
+    extra: Optional[Dict] = None,
+) -> Dict[str, str]:
+    """
+    Post an Adaptive Card to a Microsoft Teams channel via the Teams Workflows webhook.
+    Returns: {status, code, message?}
+    """
+    if not x_agent_id or not x_agent_id.startswith("agent-"):
+        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
+
+    if not TEAMS_WORKFLOW_WEBHOOK_URL:
+        raise HTTPException(status_code=500, detail="Teams webhook URL not configured")
+
+    # Minimal Adaptive Card (you can customize this in the Adaptive Cards Designer)
+    # https://adaptivecards.io/designer/
+    card = {
+        "type": "AdaptiveCard",
+        "version": "1.5",
+        "body": [
+            {"type": "TextBlock", "size": "Large", "weight": "Bolder",
+             "text": f"🚨 Risk Escalation: {company_id}"},
+            {"type": "TextBlock",
+             "text": "Triggered by Credit Risk MCP (Copilot Studio)"},
+            {"type": "FactSet", "facts": [
+                {"title": "Company ID", "value": company_id},
+                {"title": "Agent", "value": x_agent_id},
+                {"title": "Risk Score", "value": "" if risk_score is None else f"{risk_score:.4f}"},
+                {"title": "Risk Rating", "value": risk_rating or ""},
+                {"title": "Timestamp (UTC)", "value": datetime.datetime.utcnow().isoformat() + "Z"},
+            ]},
+        ],
+        # optional actions (buttons)
+        "actions": [
+            {
+                "type": "Action.OpenUrl",
+                "title": "Open Generated Report",
+                # If you return absolute URLs in generate_report, set that here:
+                "url": extra.get("report_url") if extra else
+                "https://contoso.example/reports"
+            }
+        ]
+    }
+
+    try:
+        resp = requests.post(
+            TEAMS_WORKFLOW_WEBHOOK_URL,
+            json=card,
+            timeout=10
+        )
+        ok = 200 <= resp.status_code < 300
+        return {
+            "status": "alert_escalated" if ok else "failed",
+            "code": str(resp.status_code),
+            "message": "" if ok else resp.text[:300]
+        }
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Webhook post failed: {e}")
 
 # ----------------------------------------------
 # Word Report Generation
