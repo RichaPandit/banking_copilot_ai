@@ -3,6 +3,7 @@ import os
 import logging
 import httpx
 import requests
+import json
 
 from mcp_server.utils import load_csv, validate_agent_id
 from mcp_server.tools import router as tools_router, generate_report_internal
@@ -147,8 +148,9 @@ async def generate_report(company_id: str) -> str:
     MCP tool that generates the Word/PDF report by delegating to tools.py.
     Returns: {"status", "company", "risk_score", "risk_rating", "word_report", "pdf_report", "rag_highlights"}
     """
+    
     x_agent_id = _get_agent_id_from_headers()
-    result = generate_report_internal(
+    result: Dict[str, Any] = generate_report_internal(
         company_id=company_id,
         x_agent_id=x_agent_id,
         companies=companies,
@@ -157,8 +159,8 @@ async def generate_report(company_id: str) -> str:
         covenants=covenants,
         ews=ews,
     )
-    return result
-
+    # Return as JSON string, which FastMCP will emit as a text content block
+    return json.dumps(result, ensure_ascii=False)
 
 # Example of calling an external API (kept similar to MVP style)
 @mcp.tool()
