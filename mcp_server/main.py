@@ -4,11 +4,15 @@ import logging
 import httpx
 import requests
 
+from mcp_server.utils import load_csv, validate_agent_id
+from mcp_server.tools import router as tools_router, generate_report_internal
+
 # FastMCP (MVP-style imports)
 from fastmcp.server import FastMCP
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.http import create_streamable_http_app
+from fastmcp.server.context import Context
 
 # ToolError may live under fastmcp.server.exceptions; provide a safe fallback
 try:
@@ -16,6 +20,18 @@ try:
 except Exception:  # pragma: no cover
     class ToolError(Exception):
         pass
+
+DEFAULT_LIST_LIMIT = 50
+MAX_LIST_LIMIT = 200
+
+# -----------------
+# CSV data
+# -----------------
+companies   = load_csv("data/companies.csv")
+financials  = load_csv("data/financials.csv")
+exposure    = load_csv("data/exposure.csv")
+covenants   = load_csv("data/covenants.csv")
+ews         = load_csv("data/ews.csv")
 
 # ---------------------------------------------------------------------------
 # Tokens from environment (Azure App Service)
@@ -87,6 +103,31 @@ def get_log_file() -> str:
 @mcp.tool()
 async def ping() -> str:
     return "pong"
+
+@mcp.tool()
+def mcp_get_companies(context: Context, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict]:
+    lim = min(max(limit, 1), MAX_LIST_LIMIT)
+    return companies.iloc[offset: offset + lim].to_dict(orient="records")
+
+@mcp.tool()
+def mcp_get_financials(context: Context, company_id: str) -> list[dict]:
+    df = financials[financials["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.tool()
+def mcp_get_exposure(context: Context, company_id: str) -> list[dict]:
+    df = exposure[exposure["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.tool()
+def mcp_get_covenants(context: Context, company_id: str) -> list[dict]:
+    df = covenants[covenants["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.tool()
+def mcp_get_ews(context: Context, company_id: str) -> list[dict]:
+    data = ews[ews["company_id"] == company_id]
+    return data.to_dict(orient="records")
 
 @mcp.tool()
 async def generate_report(company_id: str) -> str:
