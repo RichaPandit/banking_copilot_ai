@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Dict
 import os
 import logging
 import httpx
@@ -80,7 +80,6 @@ def _get_agent_id_from_headers() -> str:
     if isinstance(agent, str) and agent.lower().startswith("bearer "):
         agent = agent[7:].strip()
     return agent
-
 
 # ---------------------------------------------------------------------------
 # Initialize FastMCP server (Streamable HTTP, JSON responses)
