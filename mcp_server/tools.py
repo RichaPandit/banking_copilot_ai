@@ -1,5 +1,4 @@
 from docx import Document
-from docx2pdf import convert
 from fastapi import APIRouter, Header, HTTPException
 from rag_logic.rag_highlights import generate_rag_highlights
 from rag_logic.risk_scoring import compute_risk_score

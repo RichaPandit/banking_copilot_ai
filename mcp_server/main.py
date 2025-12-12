@@ -69,6 +69,18 @@ class UserAuthMiddleware(Middleware):
 
         return await call_next(context)
 
+def _get_agent_id_from_headers() -> str:
+    """
+    Extract an agent ID from headers.
+    We accept either `x-agent-id` or `x-agent-key` with optional 'Bearer ' prefix.
+    """
+    headers = get_http_headers()
+    agent = headers.get("x-agent-id") or headers.get("x-agent-key") or ""
+    if isinstance(agent, str) and agent.lower().startswith("bearer "):
+        agent = agent[7:].strip()
+    return agent
+
+
 # ---------------------------------------------------------------------------
 # Initialize FastMCP server (Streamable HTTP, JSON responses)
 # ---------------------------------------------------------------------------
@@ -131,8 +143,22 @@ def mcp_get_ews(context: Context, company_id: str) -> list[dict]:
 
 @mcp.tool()
 async def generate_report(company_id: str) -> str:
-    # Placeholder: replace with your actual report generation
-    return f"Report generated for {company_id}"
+    """
+    MCP tool that generates the Word/PDF report by delegating to tools.py.
+    Returns: {"status", "company", "risk_score", "risk_rating", "word_report", "pdf_report", "rag_highlights"}
+    """
+    x_agent_id = _get_agent_id_from_headers()
+    result = generate_report_internal(
+        company_id=company_id,
+        x_agent_id=x_agent_id,
+        companies=companies,
+        financials=financials,
+        exposure=exposure,
+        covenants=covenants,
+        ews=ews,
+    )
+    return result
+
 
 # Example of calling an external API (kept similar to MVP style)
 @mcp.tool()
