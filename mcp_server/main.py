@@ -102,9 +102,9 @@ logger = logging.getLogger(__name__)
 @mcp.resource("data://companies", name="Companies",
               description="List of corporate borrowers (company_id, company_name, sector)",
               mime_type="application/json")
-def res_companies(limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> List[Dict]:
-    lim = min(max(limit, 1), MAX_LIST_LIMIT)
-    return companies.iloc[offset: offset + lim].to_dict(orient="records")
+def res_companies() -> List[Dict]:
+    # Concrete resource: no parameters and no URI placeholders
+    return companies.iloc[:DEFAULT_LIST_LIMIT].to_dict(orient="records")
 
 @mcp.resource("data://financials/{company_id}", name="Financials",
               description="Income statement and balance sheet time series",
@@ -120,14 +120,12 @@ def res_exposure(company_id: str) -> List[Dict]:
     df = exposure[exposure["company_id"] == company_id]
     return df.to_dict(orient="records")
 
-
 @mcp.resource("data://covenants/{company_id}", name="Covenants",
               description="Covenant thresholds and last actuals",
               mime_type="application/json")
 def res_covenants(company_id: str) -> List[Dict]:
     df = covenants[covenants["company_id"] == company_id]
     return df.to_dict(orient="records")
-
 
 @mcp.resource("data://ews/{company_id}", name="EarlyWarningSignals",
               description="Early warning signal events",
