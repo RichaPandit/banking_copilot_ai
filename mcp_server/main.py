@@ -112,45 +112,52 @@ def res_companies() -> List[Dict]:
 if not companies.empty:
     top_ids = companies["company_id"].dropna().astype(str).head(TOP_N).tolist()
 
+    # Helper factories that return **parameterless** functions (no arguments!)
+    def make_fin_reader(cid: str):
+        def fin_reader() -> List[Dict]:
+            df = financials[financials["company_id"] == cid]
+            return df.to_dict(orient="records")
+        return fin_reader
+
+    def make_exp_reader(cid: str):
+        def exp_reader() -> List[Dict]:
+            df = exposure[exposure["company_id"] == cid]
+            return df.to_dict(orient="records")
+        return exp_reader
+
+    def make_cov_reader(cid: str):
+        def cov_reader() -> List[Dict]:
+            df = covenants[covenants["company_id"] == cid]
+            return df.to_dict(orient="records")
+        return cov_reader
+
+    def make_ews_reader(cid: str):
+        def ews_reader() -> List[Dict]:
+            df = ews[ews["company_id"] == cid]
+            return df.to_dict(orient="records")
+        return ews_reader
+
     # Financials N concrete resources
     for cid in top_ids:
         @mcp.resource(f"data://financials/{cid}",
                       name=f"Financials {cid}",
                       description=f"Financials for {cid}",
-                      mime_type="application/json")
-        def _fin_reader(_cid=cid) -> List[Dict]:  # bind current cid
-            df = financials[financials["company_id"] == _cid]
-            return df.to_dict(orient="records")
+                      mime_type="application/json")(make_fin_reader(cid))
 
-    # Exposure N concrete resources
-    for cid in top_ids:
         @mcp.resource(f"data://exposure/{cid}",
                       name=f"Exposure {cid}",
                       description=f"Exposure for {cid}",
-                      mime_type="application/json")
-        def _exp_reader(_cid=cid) -> List[Dict]:
-            df = exposure[exposure["company_id"] == _cid]
-            return df.to_dict(orient="records")
+                      mime_type="application/json")(make_exp_reader(cid))
 
-    # Covenants N concrete resources
-    for cid in top_ids:
         @mcp.resource(f"data://covenants/{cid}",
                       name=f"Covenants {cid}",
                       description=f"Covenants for {cid}",
-                      mime_type="application/json")
-        def _cov_reader(_cid=cid) -> List[Dict]:
-            df = covenants[covenants["company_id"] == _cid]
-            return df.to_dict(orient="records")
+                      mime_type="application/json")(make_cov_reader(cid))
 
-    # EWS N concrete resources
-    for cid in top_ids:
         @mcp.resource(f"data://ews/{cid}",
                       name=f"EWS {cid}",
                       description=f"Early Warning Signals for {cid}",
-                      mime_type="application/json")
-        def _ews_reader(_cid=cid) -> List[Dict]:
-            df = ews[ews["company_id"] == _cid]
-            return df.to_dict(orient="records")
+                      mime_type="application/json")(make_ews_reader(cid))
 
 # --------------------------
 # Tools
