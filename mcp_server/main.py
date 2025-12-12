@@ -99,21 +99,21 @@ logger = logging.getLogger(__name__)
 # ------------------------
 # Resources
 # ------------------------
-@mcp.resource(uri="data://companies", name="Companies",
+@mcp.resource("data://companies", name="Companies",
               description="List of corporate borrowers (company_id, company_name, sector)",
               mime_type="application/json")
 def res_companies(limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> List[Dict]:
     lim = min(max(limit, 1), MAX_LIST_LIMIT)
     return companies.iloc[offset: offset + lim].to_dict(orient="records")
 
-@mcp.resource(uri="data://financials/{company_id}", name="Financials",
+@mcp.resource("data://financials/{company_id}", name="Financials",
               description="Income statement and balance sheet time series",
               mime_type="application/json")
 def res_financials(company_id: str) -> List[Dict]:
     df = financials[financials["company_id"] == company_id]
     return df.to_dict(orient="records")
 
-@mcp.resource(uri="data://exposure/{company_id}", name="Exposure",
+@mcp.resource("data://exposure/{company_id}", name="Exposure",
               description="Sanctioned limit, utilized amount, overdue, collateral, DPD",
               mime_type="application/json")
 def res_exposure(company_id: str) -> List[Dict]:
@@ -121,7 +121,7 @@ def res_exposure(company_id: str) -> List[Dict]:
     return df.to_dict(orient="records")
 
 
-@mcp.resource(uri="data://covenants/{company_id}", name="Covenants",
+@mcp.resource("data://covenants/{company_id}", name="Covenants",
               description="Covenant thresholds and last actuals",
               mime_type="application/json")
 def res_covenants(company_id: str) -> List[Dict]:
@@ -129,7 +129,7 @@ def res_covenants(company_id: str) -> List[Dict]:
     return df.to_dict(orient="records")
 
 
-@mcp.resource(uri="data://ews/{company_id}", name="EarlyWarningSignals",
+@mcp.resource("data://ews/{company_id}", name="EarlyWarningSignals",
               description="Early warning signal events",
               mime_type="application/json")
 def res_ews(company_id: str) -> List[Dict]:
