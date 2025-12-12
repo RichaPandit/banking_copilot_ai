@@ -1,9 +1,23 @@
+
+# ---- Web serving (App Service) ----
 gunicorn==22.0.0
-uvicorn==0.23.2
-fastapi==0.111.1
-mcp[cli]
+# Uvicorn needs to be >=0.35 for FastMCP 2.13+; [standard] pulls performant extras
+uvicorn[standard]>=0.35,<0.39
+
+# ---- Frameworks ----
+fastapi==0.111.1           # OK with newer Uvicorn; FastAPI typically runs on Uvicorn
+fastmcp>=2.13.3,<3         # Matches your server imports and Streamable HTTP
+mcp[cli]>=1.19,<1.23        # Optional CLI; constrained to match FastMCP’s dependency window
+
+# ---- Data & HTTP ----
 pandas>=1.5.0
+requests>=2.31.0
+httpx>=0.24.0
 python-dotenv
-python-docx
-requests
-docx2pdf
+
+# ---- DOCX & PDF (Linux-friendly for App Service) ----
+python-docx>=1.1.0
+reportlab>=4.0.4           # pure-Python PDF generation
+PyPDF2>=3.0.1              # PDF merge/split/extract, pure-Python
+
+# (Removed: docx2pdf — not supported on Linux; requires Microsoft Word on Windows/macOS)
