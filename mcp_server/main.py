@@ -175,28 +175,28 @@ def register_featured_resources() -> None:
     
     mcp.resource(
         f"data://financials/{cid}",
-        name=f"Financials {cid}",
+        name=f"Financials",
         description=f"Financials for {cid}",
         mime_type="application/json"
     )(make_fin_reader(cid))
 
     mcp.resource(
         f"data://exposure/{cid}",
-        name=f"Exposure {cid}",
+        name=f"Exposure",
         description=f"Financials for {cid}",
         mime_type="application/json"
     )(make_exp_reader(cid))
 
     mcp.resource(
         f"data://covenants/{cid}",
-        name=f"Covenants {cid}",
+        name=f"Covenants",
         description=f"Covenants for {cid}",
         mime_type="application/json"
     )(make_cov_reader(cid))
 
     mcp.resource(
         f"data://ews/{cid}",
-        name=f"EWS {cid}",
+        name=f"EWS",
         description=f"Early Warning Signals for {cid}",
         mime_type="application/json"
     )(make_ews_reader(cid))
