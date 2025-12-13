@@ -137,11 +137,14 @@ def res_ews(company_id: str) -> List[Dict]:
 # ----------------------------------------
 # Materialize top-N concrete resources
 # ----------------------------------------
-def register_concrete_resources() -> None:
-    if companies.empty:
-        None
-
-    top_ids = companies["company_id"].dropna().astype(str).head(TOP_N).tolist()
+def register_featured_resources() -> None:
+    featured = os.getenv("MCP_RESOURCE_FEATURED_ID", "").strip()
+    if not featured:
+        return
+    
+    if companies.empty or not (companies["company_id"].astype(str)==featured).any():
+        logger.warning("Featured company_id '%s' not found in companies.csv", featured)
+        return
 
     # Helper factories that return **parameterless** functions (no arguments!)
     def make_fin_reader(cid: str):
@@ -168,39 +171,40 @@ def register_concrete_resources() -> None:
             return df.to_dict(orient="records")
         return ews_reader
     
-    for cid in top_ids:
-        mcp.resource(
-            f"data://financials/{cid}",
-            name=f"Financials {cid}",
-            description=f"Financials for {cid}",
-            mime_type="application/json"
-        )(make_fin_reader(cid))
+    cid = featured
+    
+    mcp.resource(
+        f"data://financials/{cid}",
+        name=f"Financials {cid}",
+        description=f"Financials for {cid}",
+        mime_type="application/json"
+    )(make_fin_reader(cid))
 
-        mcp.resource(
-            f"data://exposure/{cid}",
-            name=f"Exposure {cid}",
-            description=f"Financials for {cid}",
-            mime_type="application/json"
-        )(make_exp_reader(cid))
+    mcp.resource(
+        f"data://exposure/{cid}",
+        name=f"Exposure {cid}",
+        description=f"Financials for {cid}",
+        mime_type="application/json"
+    )(make_exp_reader(cid))
 
-        mcp.resource(
-            f"data://covenants/{cid}",
-            name=f"Covenants {cid}",
-            description=f"Covenants for {cid}",
-            mime_type="application/json"
-        )(make_cov_reader(cid))
+    mcp.resource(
+        f"data://covenants/{cid}",
+        name=f"Covenants {cid}",
+        description=f"Covenants for {cid}",
+        mime_type="application/json"
+    )(make_cov_reader(cid))
 
-        mcp.resource(
-            f"data://ews/{cid}",
-            name=f"EWS {cid}",
-            description=f"Early Warning Signals for {cid}",
-            mime_type="application/json"
-        )(make_ews_reader(cid))
+    mcp.resource(
+        f"data://ews/{cid}",
+        name=f"EWS {cid}",
+        description=f"Early Warning Signals for {cid}",
+        mime_type="application/json"
+    )(make_ews_reader(cid))
 
 try:
-    register_concrete_resources()
+    register_featured_resources()
 except Exception as e:
-    logger.exception("Concrete resource registration failed: %s", e)
+    logger.exception("Feature resource registration failed: %s", e)
 
 #----------------------
 # Tools
