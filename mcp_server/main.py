@@ -24,7 +24,7 @@ except Exception:  # pragma: no cover
 
 DEFAULT_LIST_LIMIT = 50
 MAX_LIST_LIMIT = 200
-TOP_N = 20
+TOP_N = int(os.getenv("MCP_RESOURCE_TOP_N", "20"))
 # -----------------
 # CSV data
 # -----------------
