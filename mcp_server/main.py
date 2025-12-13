@@ -248,6 +248,21 @@ def escalate_alert(context: Context, company_id: str) -> str:
     )
     return json.dumps(result, ensure_ascii=False)
 
+@mcp.tool()
+def get_company_context(company_id: str) -> str:
+    """
+    Return all company context (financials, exposure, covenants, ews) in one JSON string
+    so Copilot Studio can deterministically consume it in a Topic.
+    """
+    ctx = {
+        "company_id": company_id,
+        "financials": res_financials(company_id),   # uses your resource function
+        "exposure":   res_exposure(company_id),
+        "covenants":  res_covenants(company_id),
+        "ews":        res_ews(company_id),
+    }
+    return json.dumps(ctx, ensure_ascii=False)
+
 # ---------------------------------------------------------------------------
 # ASGI app for Azure App Service (gunicorn) and direct run fallback
 # ---------------------------------------------------------------------------
