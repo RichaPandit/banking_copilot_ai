@@ -106,10 +106,41 @@ def res_companies() -> List[Dict]:
     # Concrete resource: no parameters and no URI placeholders
     return companies.iloc[:DEFAULT_LIST_LIMIT].to_dict(orient="records")
 
+@mcp.resource("data://financials/{company_id}", name="Financials",
+              description="Income statement and balance sheet time series",
+              mime_type="application/json")
+def res_financials(company_id: str) -> List[Dict]:
+    df = financials[financials["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.resource("data://exposure/{company_id}", name="Exposure",
+              description="Sanctioned limit, utilized amount, overdue, collateral, DPD",
+              mime_type="application/json")
+def res_exposure(company_id: str) -> List[Dict]:
+    df = exposure[exposure["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.resource("data://covenants/{company_id}", name="Covenants",
+              description="Covenant thresholds and last actuals",
+              mime_type="application/json")
+def res_covenants(company_id: str) -> List[Dict]:
+    df = covenants[covenants["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
+@mcp.resource("data://ews/{company_id}", name="EarlyWarningSignals",
+              description="Early warning signal events",
+              mime_type="application/json")
+def res_ews(company_id: str) -> List[Dict]:
+    df = ews[ews["company_id"] == company_id]
+    return df.to_dict(orient="records")
+
 # ----------------------------------------
 # Materialize top-N concrete resources
 # ----------------------------------------
-if not companies.empty:
+def register_concrete_resources() -> None:
+    if companies.empty:
+        None
+
     top_ids = companies["company_id"].dropna().astype(str).head(TOP_N).tolist()
 
     # Helper factories that return **parameterless** functions (no arguments!)
@@ -136,30 +167,42 @@ if not companies.empty:
             df = ews[ews["company_id"] == cid]
             return df.to_dict(orient="records")
         return ews_reader
-
-    # Financials N concrete resources
+    
     for cid in top_ids:
-        @mcp.resource(f"data://financials/{cid}",
-                      name=f"Financials {cid}",
-                      description=f"Financials for {cid}",
-                      mime_type="application/json")(make_fin_reader(cid))
+        mcp.resource(
+            f"data://financials/{cid}",
+            name=f"Financials {cid}",
+            description=f"Financials for {cid}",
+            mime_type="application/json"
+        )(make_fin_reader(cid))
 
-        @mcp.resource(f"data://exposure/{cid}",
-                      name=f"Exposure {cid}",
-                      description=f"Exposure for {cid}",
-                      mime_type="application/json")(make_exp_reader(cid))
+        mcp.resource(
+            f"data://exposure/{cid}",
+            name=f"Exposure {cid}",
+            description=f"Financials for {cid}",
+            mime_type="application/json"
+        )(make_exp_reader(cid))
 
-        @mcp.resource(f"data://covenants/{cid}",
-                      name=f"Covenants {cid}",
-                      description=f"Covenants for {cid}",
-                      mime_type="application/json")(make_cov_reader(cid))
+        mcp.resource(
+            f"data://covenants/{cid}",
+            name=f"Covenants {cid}",
+            description=f"Covenants for {cid}",
+            mime_type="application/json"
+        )(make_cov_reader(cid))
 
-        @mcp.resource(f"data://ews/{cid}",
-                      name=f"EWS {cid}",
-                      description=f"Early Warning Signals for {cid}",
-                      mime_type="application/json")(make_ews_reader(cid))
+        mcp.resource(
+            f"data://ews/{cid}",
+            name=f"EWS {cid}",
+            description=f"Early Warning Signals for {cid}",
+            mime_type="application/json"
+        )(make_ews_reader(cid))
 
-# --------------------------
+try:
+    register_concrete_resources()
+except Exception as e:
+    logger.exception("Concrete resource registration failed: %s", e)
+
+#----------------------
 # Tools
 # --------------------------
 @mcp.tool()
