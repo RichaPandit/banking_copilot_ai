@@ -240,12 +240,23 @@ def escalate_alert(context: Context, company_id: str) -> str:
     Returns JSON: {"status","code","message"}.
     """
     x_agent_id = _get_agent_id_from_headers()
+    
+    latest_report = generate_report_internal(
+        company_id=company_id,
+        x_agent_id=x_agent_id,
+        companies=companies,
+        financials=financials,
+        exposure=exposure,
+        covenants=covenants,
+        ews=ews,
+    )
+
     result = escalate_alert_internal(
         company_id=company_id,
         x_agent_id=x_agent_id,
-        risk_score=None,
-        risk_rating=None,
-        extra={}
+        risk_score= latest_report.get("risk_score"),
+        risk_rating=latest_report.get("risk_rating"),
+        extra={"report_url": latest_report.get("word_report_url")}
     )
     return json.dumps(result, ensure_ascii=False)
 

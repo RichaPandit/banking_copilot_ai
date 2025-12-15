@@ -13,7 +13,29 @@ router = APIRouter()
 # Use a writable base path on App Service Linux
 BASE_DIR = os.environ.get("APP_BASE_DIR", "/home/site/wwwroot")
 REPORT_DIR = os.path.join(BASE_DIR, "reports", "generated_reports")
+
+# URL-building inputs
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+WEBSITE_HOSTNAME = os.getenv("WEBSITE_HOSTNAME", "").strip()
+
 TEAMS_WORKFLOW_WEBHOOK_URL: str = os.getenv("TEAMS_WORKFLOW_WEBHOOK_URL", "").strip()
+
+def _to_web_path(*parts: str) -> str:
+    rel = os.path.join(*parts)
+    return rel.replace(os.sep, "/").lstrip("/")
+
+def _public_base_url() -> str:
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL
+    if WEBSITE_HOSTNAME:
+        return f"https://{WEBSITE_HOSTNAME}"
+    return ""
+
+def _make_public_url(rel_web_path: Optional[str]) -> Optional[str]:
+    if not rel_web_path:
+        return None
+    base = _public_base_url()
+    return f"{base}/{rel_web_path.lstrip('/')}" if base else None
 
 def escalate_alert_internal(
     company_id: str,
@@ -22,10 +44,7 @@ def escalate_alert_internal(
     risk_rating: Optional[str] = None,
     extra: Optional[Dict] = None,
 ) -> Dict[str, str]:
-    """
-    Post an Adaptive Card to a Microsoft Teams channel via the Teams Workflows webhook.
-    Returns: {status, code, message?}
-    """
+
     if not x_agent_id or not x_agent_id.startswith("agent-"):
         raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
 
@@ -129,21 +148,41 @@ def create_word_report(company_name, financials, exposure, covenants, ews, risk_
     for h in rag_highlights:
         doc.add_paragraph(f"- {h}")
 
-    # Save Word
+    # ----- Save under wwwroot so it's web-accessible -----
+    os.makedirs(REPORT_DIR, exist_ok=True)
     report_name = f"{company_name.replace(' ','_')}_Risk_Report_{datetime.date.today()}.docx"
-    report_path = os.path.join("reports/generated_reports", report_name)
-    os.makedirs(os.path.dirname(report_path), exist_ok=True)
-    doc.save(report_path)
+    # Absolute filesystem path
+    abs_word_path = os.path.join(REPORT_DIR, report_name)
+    # Relative web path (used for URL building)
+    rel_web_word_path = _to_web_path("reports", "generated_reports", report_name)
 
-    # Convert to PDF
-    pdf_path: Optional[str] = report_path.replace(".docx", ".pdf")
+    doc.save(abs_word_path)
+
+    # Convert to PDF (best-effort, likely None on Linux)
+    abs_pdf_path = abs_word_path.replace(".docx", ".pdf")
+    rel_web_pdf_path = rel_web_word_path.replace(".docx", ".pdf")
     try:
         from docx2pdf import convert  # requires Word on Windows/macOS
-        convert(report_path, pdf_path)
+        convert(abs_word_path, abs_pdf_path)
+        pdf_exists = True
     except Exception:
-        pdf_path = None  # return DOCX-only
+        pdf_exists = False
+        abs_pdf_path = None
+        rel_web_pdf_path = None
 
-    return {"word": report_path, "pdf": pdf_path, "rag_highlights": rag_highlights}
+    # Build URLs (absolute)
+    word_url = _make_public_url(rel_web_word_path)
+    pdf_url  = _make_public_url(rel_web_pdf_path) if pdf_exists else None
+
+    return {
+        # Return relative web paths for compatibility…
+        "word": rel_web_word_path,              # 'reports/generated_reports/…docx'
+        "pdf": rel_web_pdf_path,                # or None
+        # …and public URLs for direct clicking
+        "word_url": word_url,                   # 'https://…/reports/generated_reports/…docx'
+        "pdf_url": pdf_url,                     # or None
+        "rag_highlights": rag_highlights
+    }
 
 def generate_report_internal(
     company_id: str,
@@ -181,15 +220,9 @@ def generate_report_internal(
         "company": company_name,
         "risk_score": risk_score,
         "risk_rating": risk_rating,
-        "word_report": report_paths["word"],
-        "pdf_report": report_paths["pdf"],
+        "word_report": report_paths["word"],              # relative web path
+        "word_report_url": report_paths["word_url"],      # absolute URL
+        "pdf_report": report_paths["pdf"],                # relative web path or None
+        "pdf_report_url": report_paths["pdf_url"],        # absolute URL or None
         "rag_highlights": report_paths["rag_highlights"]
     }
-
-# Escalate alert tool
-@router.post("/tools/escalate-alert/{company_id}")
-def escalate_alert(company_id: str, x_agent_id: str = Header(None)):
-    if not x_agent_id or not x_agent_id.startswith("agent-"):
-        raise HTTPException(status_code=401, detail="Invalid or missing Agent ID")
-    # TODO: call your Power Automate / Logic Apps flow here
-    return {"status": "alert_escalated", "company_id": company_id}
