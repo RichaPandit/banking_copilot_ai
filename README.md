@@ -36,3 +36,34 @@ b. Restart the app after deployment
 In Web App  -> Settings -> Configuration -> Stack Settings, set your startup command as:
 
       gunicorn -k uvicorn.workers.UvicornWorker -w 1 mcp_server.main:app
+      
+**Define Environment Variables (No Hardcoding)**
+All secrets and config are injected via Application Setings.
+In Web App -> Settings -> Environment variables, add:
+
+Variable Name               | Description
+----------------------------|---------------------------------------------
+MCP_DEV_ASSUME_KEY          | Token used by Copilot Studio to authenticate
+TEAMS_WORKFLOW_WEBHOOK_URL  | Microsoft Teams workflow webhook
+APP_BASE_DIR                | Writable base path (/home/site/wwwroot)
+MCP_RESOURCE_FEATURED_ID    | Optional featured company ID
+
+No secrets are committed to webhook
+
+**Monitor with Log Stream**
+To debug and monitor runtime behavior:
+1. In Azure portal, Web App -> Moitoring -> Log stream
+2. Watch for:
+   a. MCP server startup logs
+   b. Tool invocation requests
+   c. Authentication failures
+   d. Report generation paths
+This is especially useful when validating:
+1. Copilot -> MCP auth headers
+2. Tool execution from Copilot Studio
+3. File write permissions
+
+**CI/CD via Github Actions**
+Create file under the <project_folder>/.github/workflows
+
+
