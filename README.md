@@ -63,7 +63,18 @@ This is especially useful when validating:
 2. Tool execution from Copilot Studio
 3. File write permissions
 
+**Add Azure Publish Profile to GitHub**
+1. in Azure Portal Web App, go to Overview -> Download publish profile.
+2. Make sure that Basic authentication is enabled. Go to Settings, Configuration, General settings, SCM Basic Auth Publishing Credentials, and choose On.
+3. Download the .PublishSettings file
+4. In GitHub:
+   a. Repo -> Settings -> Secrets and variables -> Actions, add a new secret.
+   b. Name: AZURE_CREDENTIALS
+   c. Value: entire contents of the publish profile file
+GitHub automatically injects this secret at runtime.
+
 **CI/CD via Github Actions**
-Create file under the <project_folder>/.github/workflows
+
+Create YAML file under the <project_folder>/.github/workflows and refer the secret created in the above step AZURE_CREDENTIALS.
 
 
