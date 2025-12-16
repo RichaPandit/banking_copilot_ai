@@ -1,4 +1,4 @@
-Create an Azure Web App (Python)
+**Create an Azure Web App (Python)**
 1. In Azure Portal -> Create Web App
 2. Configuration:
    a. Publish: Code
@@ -11,7 +11,7 @@ Create an Azure Web App (Python)
    c. Default domain (https://<app-name>.azurewebsites.net)
 This Web App will host the MCP server endpoint (/mcp).
 
-Create a GitHub Repository & Push Code
+**Create a GitHub Repository & Push Code**
 1. Create GitHub repository
 2. From your local directory:
    git init
@@ -21,7 +21,7 @@ Create a GitHub Repository & Push Code
    git remote add origin https://github.com/<username>/<repo-name>.git
    git push -u origin main
 
-Connect GitHub to Azure WebApp (CI/CD)
+**Connect GitHub to Azure WebApp (CI/CD)**
 1. In Azure Portal -> Web App -> Deployment Center
 2. Choose:
    a. Source: GitHub
@@ -32,5 +32,7 @@ Azure will now:
 a. Auto-build on every push
 b. Restart the app after deployment
 
-Configure Startup Command
-In Web App  -> Configuration ->
+**Configure Startup Command**
+In Web App  -> Settings -> Configuration -> Stack Settings, set your startup command as:
+
+      gunicorn -k uvicorn.workers.UvicornWorker -w 1 mcp_server.main:app
