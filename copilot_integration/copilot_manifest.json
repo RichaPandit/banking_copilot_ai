@@ -5,7 +5,7 @@
   "description": "Enterprise Copilot agent for automated credit risk reviews. Uses Work IQ for context & MCP for secure data/tool access.",
 
   "mcp": {
-    "baseUrl": "https://banking-ai-mcp-hpg8e8d7dxe0hkf0.uksouth-01.azurewebsites.net/mcp"
+    "baseUrl": "https://<web-app URL>.azurewebsites.net/mcp"
   },
 
   "resources": [
